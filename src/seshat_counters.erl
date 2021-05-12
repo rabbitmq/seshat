@@ -13,7 +13,8 @@
          fetch/2,
          overview/1,
          delete/2,
-         prometheus_format/1
+         prometheus_format/1,
+         gc/2
         ]).
 
 -type group() :: term().
@@ -75,6 +76,18 @@ prometheus_format(Group) ->
                       Acc#{Name => Counters}
               end,
               #{}, seshat_counters_server:get_table(Group)).
+
+%% TODO maybe seshat should be responsible for all gc timers?
+gc(Group, Fun) ->
+    Table = seshat_counters_server:get_table(Group),
+    ets:foldl(fun({Name, _Ref, _Fields}, none) ->
+                      case Fun(Name) of
+                          true ->
+                              ets:delete(Table, Name);
+                          false ->
+                              none
+                      end
+              end, none, Table).
 
 %% internal
 
