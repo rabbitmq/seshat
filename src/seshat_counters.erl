@@ -26,7 +26,9 @@ new_group(Group) ->
 delete_group(Group) ->
     seshat_counters_server:delete_table(Group).
 
--spec new(group(), name(), [atom()]) -> counters:counters_ref().
+-spec new(group(), name(), [{Name :: atom(), Position :: non_neg_integer(),
+                             Type :: atom(), Description :: term()}]) ->
+                 counters:counters_ref().
 new(Group, Name, Fields) when is_list(Fields) ->
     Size = length(Fields),
     CRef = counters:new(Size, []),
