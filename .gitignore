@@ -20,3 +20,5 @@ osiris.d
 *.d
 
 *.jar
+
+Makefile.bak
