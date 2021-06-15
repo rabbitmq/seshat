@@ -52,9 +52,15 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({create_table, Group}, _From, #state{tables = Tables} = State) ->
-    Ref = ets:new(anonymous, [set, public]),
-    persistent_term:put({?MODULE, Group}, Ref),
-    {reply, Ref, State#state{tables = maps:put(Group, Ref, Tables)}};
+    case maps:is_key(Group, Tables) of
+        true ->
+            Ref = maps:get(Group, Tables),
+            {reply, Ref, State};
+        false ->
+            Ref = ets:new(anonymous, [set, public]),
+            persistent_term:put({?MODULE, Group}, Ref),
+            {reply, Ref, State#state{tables = maps:put(Group, Ref, Tables)}}
+    end;
 handle_call({delete_table, Group}, _From, #state{tables = Tables} = State) ->
     %% TODO handle not_found
     Ref = persistent_term:get({?MODULE, Group}),
