@@ -66,16 +66,22 @@ overview(Group) ->
               #{}, seshat_counters_server:get_table(Group)).
 
 prometheus_format(Group) ->
-    ets:foldl(fun({Name, Ref, Fields}, Acc) ->
-                      Counters = lists:foldl(
-                                   fun ({Key, Index, Type, Description}, Acc0) ->
-                                           [{Key, counters:get(Ref, Index), Type, Description}
-                                           | Acc0]
-                                   end,
-                                   [],
-                                   Fields
-                                  ),
-                      Acc#{Name => Counters}
+    ets:foldl(fun({Labels, Ref, Fields}, Acc) ->
+                      lists:foldl(
+                        fun ({Name, Index, Type, Help}, Acc0) ->
+                                InitialMetric = #{type => Type,
+                                                  help => Help,
+                                                  values => #{}},
+                                Metric = maps:get(Name, Acc0, InitialMetric),
+                                Values = maps:get(values, Metric),
+                                Counter = counters:get(Ref, Index),
+                                Values1 = Values#{Labels => Counter},
+                                Metric1 = Metric#{values => Values1},
+                                Acc0#{Name => Metric1}
+                        end,
+                        Acc,
+                        Fields
+                       )
               end,
               #{}, seshat_counters_server:get_table(Group)).
 
