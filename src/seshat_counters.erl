@@ -31,7 +31,7 @@ delete_group(Group) ->
                  counters:counters_ref().
 new(Group, Name, Fields) when is_list(Fields) ->
     Size = length(Fields),
-    CRef = counters:new(Size, []),
+    CRef = counters:new(Size, [write_concurrency]),
     ok = register_counter(Group, Name, CRef, Fields),
     CRef.
 
