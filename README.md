@@ -1,5 +1,3 @@
-![Erlang CI](https://github.com/rabbitmq/seshat/workflows/Erlang%20CI/badge.svg)
-
 # Seshat
 
 Seshat is a foundation of the metrics subsystem for RabbitMQ.

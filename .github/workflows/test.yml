@@ -1,0 +1,22 @@
+name: Test
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        erlang_version:
+        - "23"
+        - "24"
+    steps:
+    - name: CHECKOUT REPOSITORY
+      uses: actions/checkout@v2
+    - name: CONFIGURE OTP
+      uses: erlef/setup-beam@v1.7
+      with:
+        otp-version: ${{ matrix.erlang_version }}
+    - name: RUN TESTS
+      run: make tests
