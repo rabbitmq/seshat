@@ -63,9 +63,16 @@ handle_call({create_table, Group}, _From, #state{tables = Tables} = State) ->
     end;
 handle_call({delete_table, Group}, _From, #state{tables = Tables} = State) ->
     %% TODO handle not_found
-    Ref = persistent_term:get({?MODULE, Group}),
-    ets:delete(Ref),
-    persistent_term:erase({?MODULE, Group}),
+    try
+        Ref = persistent_term:get({?MODULE, Group}),
+        ets:delete(Ref),
+        persistent_term:erase({?MODULE, Group})
+    catch
+        _:badarg ->
+            %% Delete table must be idempotent, so if it's called twice or
+            %% with a non-existing key it shouldn't fail.
+            ok
+    end,
     {reply, ok, State#state{tables = maps:remove(Group, Tables)}};
 handle_call(get_tables, _From, State) ->
     {reply, State#state.tables, State};
