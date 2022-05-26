@@ -22,3 +22,6 @@ osiris.d
 *.jar
 
 Makefile.bak
+/.bazelrc
+/bazel-*
+.DS_Store
