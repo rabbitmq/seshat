@@ -33,6 +33,7 @@ delete_table(Group) ->
     gen_server:call(?MODULE, {delete_table, Group}).
 
 get_table(Group) ->
+    %% TODO: check term exists and return error
     persistent_term:get({?MODULE, Group}).
 
 get_tables() ->

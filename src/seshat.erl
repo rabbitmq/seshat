@@ -5,7 +5,7 @@
 %% Copyright (c) 2007-2021 VMware, Inc. or its affiliates.  All rights reserved.
 %%
 
--module(seshat_counters).
+-module(seshat).
 
 -export([new_group/1,
          delete_group/1,
@@ -13,27 +13,51 @@
          fetch/2,
          overview/1,
          delete/2,
-         prometheus_format/1,
-         gc/2
+         format/1
         ]).
 
 -type group() :: term().
--type name() :: term().
+-opaque group_ref() :: ets:tid().
+-type label_element() :: atom() | string().
+-type name() :: atom() |
+                binary() |
+                string() |
+                {label_element(), label_element()} |
+                [{label_element(), label_element()}].
 
+-type format_result() :: #{FieldName :: atom() =>
+                           #{type => counter | gauge,
+                             help => string(),
+                             values => #{name() => integer()}}}.
+
+-export_type([group_ref/0]).
+
+-spec new_group(group()) -> group_ref().
 new_group(Group) ->
     seshat_counters_server:create_table(Group).
 
+-spec delete_group(group()) -> ok.
 delete_group(Group) ->
     seshat_counters_server:delete_table(Group).
 
--spec new(group(), name(), [{Name :: atom(), Position :: non_neg_integer(),
-                             Type :: atom(), Description :: term()}]) ->
-                 counters:counters_ref().
+-spec new(group(), name(),
+          [{Name :: atom(), Position :: pos_integer(),
+            Type :: counter | gauge, Description :: string()}]) ->
+    counters:counters_ref().
 new(Group, Name, Fields) when is_list(Fields) ->
     Size = length(Fields),
-    CRef = counters:new(Size, [write_concurrency]),
-    ok = register_counter(Group, Name, CRef, Fields),
-    CRef.
+    %% TODO: validate that positions are correct, i.e. not out of range
+    %% or duplicated
+    ExpectedPositions = lists:seq(1, Size),
+    Positions = lists:sort([P || {_, P, _, _} <- Fields]),
+    case ExpectedPositions == Positions of
+        true ->
+            CRef = counters:new(Size, [write_concurrency]),
+            ok = register_counter(Group, Name, CRef, Fields),
+            CRef;
+        false ->
+            error(invalid_field_specification)
+    end.
 
 -spec fetch(group(), name()) -> undefined | counters:counters_ref().
 fetch(Group, Name) ->
@@ -51,21 +75,20 @@ delete(Group, Name) ->
     true = ets:delete(TRef, Name),
     ok.
 
--spec overview(group()) -> #{name() => #{atom() => non_neg_integer()}}.
+-spec overview(group()) ->
+    #{name() => #{atom() => integer()}}.
 overview(Group) ->
-    ets:foldl(fun({Name, Ref, Fields}, Acc) ->
-                      Counters = lists:foldl(
-                                   fun ({Key, Index, _Type, _Description}, Acc0) ->
-                                           Acc0#{Key => counters:get(Ref, Index)}
-                                   end,
-                                   #{},
-                                   Fields
-                                  ),
-                      Acc#{Name => Counters}
-              end,
-              #{}, seshat_counters_server:get_table(Group)).
+    ets:foldl(
+      fun({Name, Ref, Fields}, Acc) ->
+              Counters = lists:foldl(
+                           fun ({Key, Index, _Type, _Description}, Acc0) ->
+                                   Acc0#{Key => counters:get(Ref, Index)}
+                           end, #{}, Fields),
+              Acc#{Name => Counters}
+      end, #{}, seshat_counters_server:get_table(Group)).
 
-prometheus_format(Group) ->
+-spec format(group()) -> format_result().
+format(Group) ->
     ets:foldl(fun({Labels, Ref, Fields}, Acc) ->
                       lists:foldl(
                         fun ({Name, Index, Type, Help}, Acc0) ->
@@ -78,24 +101,8 @@ prometheus_format(Group) ->
                                 Values1 = Values#{Labels => Counter},
                                 Metric1 = Metric#{values => Values1},
                                 Acc0#{Name => Metric1}
-                        end,
-                        Acc,
-                        Fields
-                       )
-              end,
-              #{}, seshat_counters_server:get_table(Group)).
-
-%% TODO maybe seshat should be responsible for all gc timers?
-gc(Group, Fun) ->
-    Table = seshat_counters_server:get_table(Group),
-    ets:foldl(fun({Name, _Ref, _Fields}, none) ->
-                      case Fun(Name) of
-                          true ->
-                              ets:delete(Table, Name);
-                          false ->
-                              none
-                      end
-              end, none, Table).
+                        end, Acc, Fields)
+              end, #{}, seshat_counters_server:get_table(Group)).
 
 %% internal
 
@@ -103,9 +110,3 @@ register_counter(Group, Name, Ref, Fields) ->
     TRef = seshat_counters_server:get_table(Group),
     true = ets:insert(TRef, {Name, Ref, Fields}),
     ok.
-
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
-
--endif.
