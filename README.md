@@ -26,8 +26,10 @@ group can be any `term()` but it makes sense to just use atoms. Keep stuff tidy 
 
 Now we're ready to register some counters. 
 ```erlang 
--define(C_CARROTS_EATEN, 1),
--define(C_HOLES_DUG, 2),
+-define(C_CARROTS_EATEN, 1).
+-define(C_HOLES_DUG, 2).
+```
+```erlang
 Fields = [{carrots_eaten_total, ?C_CARROTS_EATEN, counter,
             "Total number of carrots eaten on a meal"},
           {holes_dug_total, ?C_HOLES_DUG, counter,
