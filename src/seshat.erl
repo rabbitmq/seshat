@@ -12,6 +12,7 @@
          new/3,
          fetch/2,
          overview/1,
+         overview/2,
          delete/2,
          format/1
         ]).
@@ -25,12 +26,16 @@
                 {label_element(), label_element()} |
                 [{label_element(), label_element()}].
 
+-type field_spec() :: {Name :: atom(), Position :: pos_integer(),
+                       Type :: counter | gauge, Description :: string()}.
+
 -type format_result() :: #{FieldName :: atom() =>
                            #{type => counter | gauge,
                              help => string(),
                              values => #{name() => integer()}}}.
 
--export_type([group_ref/0]).
+-export_type([group_ref/0,
+              field_spec/0]).
 
 -spec new_group(group()) -> group_ref().
 new_group(Group) ->
@@ -40,9 +45,7 @@ new_group(Group) ->
 delete_group(Group) ->
     seshat_counters_server:delete_table(Group).
 
--spec new(group(), name(),
-          [{Name :: atom(), Position :: pos_integer(),
-            Type :: counter | gauge, Description :: string()}]) ->
+-spec new(group(), name(), [field_spec()]) ->
     counters:counters_ref().
 new(Group, Name, Fields) when is_list(Fields) ->
     Size = length(Fields),
@@ -86,6 +89,18 @@ overview(Group) ->
                            end, #{}, Fields),
               Acc#{Name => Counters}
       end, #{}, seshat_counters_server:get_table(Group)).
+
+-spec overview(group(), name()) ->
+    #{atom() => integer()}.
+overview(Group, Name) ->
+    case ets:lookup(seshat_counters_server:get_table(Group), Name) of
+        [{Name, Ref, Fields}] ->
+            lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
+                                Acc0#{Key => counters:get(Ref, Index)}
+                        end, #{}, Fields);
+        _ ->
+            #{}
+    end.
 
 -spec format(group()) -> format_result().
 format(Group) ->

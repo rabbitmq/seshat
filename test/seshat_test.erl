@@ -43,7 +43,12 @@ overview() ->
     ?assertEqual(
        #{"rabbit" => #{carrots_eaten_total => 3,
                        holes_dug_total => 1}},
-       Overview).
+       Overview),
+
+    ?assertMatch(#{carrots_eaten_total := 3,
+                   holes_dug_total := 1},
+                 seshat:overview(Group, "rabbit")),
+    ok.
 
 prometheus_format_multiple_names() ->
     Group = people,
