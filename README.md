@@ -16,50 +16,53 @@ Maturing.
 
 A group in seshat is some logical partitioning of counters. E.g. you may have
 a group per erlang application, or some subcomponent of your system.
-    
-    GroupRef = seshat:new_group(pets),
+```erlang 
+GroupRef = seshat:new_group(pets),
+```
 
 A group is essentially en ETS table where counters and their meta data will be
 stored. The `GroupRef` is an opaque type (but really it is an `ets:tid()`. The 
 group can be any `term()` but it makes sense to just use atoms. Keep stuff tidy folks.
 
 Now we're ready to register some counters. 
-
-    -define(C_CARROTS_EATEN, 1),
-    -define(C_HOLES_DUG, 2),
-    Fields = [{carrots_eaten_total, ?C_CARROTS_EATEN, counter,
-                "Total number of carrots eaten on a meal"},
-              {holes_dug_total, ?C_HOLES_DUG, counter,
-               "Total number of holes dug in an afternoon"}],
-    Name = rabbit,
-    CountersRef = seshat:new(pets, Name, Fields),
-
+```erlang 
+-define(C_CARROTS_EATEN, 1),
+-define(C_HOLES_DUG, 2),
+Fields = [{carrots_eaten_total, ?C_CARROTS_EATEN, counter,
+            "Total number of carrots eaten on a meal"},
+          {holes_dug_total, ?C_HOLES_DUG, counter,
+           "Total number of holes dug in an afternoon"}],
+Name = rabbit,
+CountersRef = seshat:new(pets, Name, Fields),
+```
 
 The `CountersRef` is a `counters:counters_ref()` type and can use used as usual
 with the counters module. The `CountersRef` can be stored in the state of a
 stateful erlang module or be retrieved using `sesaht:fetch(Group, Name)`
-
-    counters:add(CountersRef, ?C_CARROTS_EATEN, 3),
-
+```erlang 
+counters:add(CountersRef, ?C_CARROTS_EATEN, 3),
+```
 To inspect the counters on the system for a given group do:
-
-    Overview = seshat:overview(pets),
-
+```erlang
+Overview = seshat:overview(pets),
+```
 Overview is a map of `#{Name => #{FieldName, Count}}`. E.g. for the above
 it would look like:
-
-    #{rabbit => #{carrots_eaten_total => 3, holes_dug_total => 0}}
+```erlang 
+#{rabbit => #{carrots_eaten_total => 3, holes_dug_total => 0}}
+```
 
 There is also `seshat:format(Groups)` which for the above case will return:
-
-    #{carrots_eaten_total =>
-        #{help => "Total number of carrots eaten on a meal",
-          type => counter,
-          values => #{rabbit => 3}},
-      holes_dug_total =>
-        #{help => "Total number of holes dug in an afternoon",
-          type => counter,
-          values => #{rabbit => 0}}}
+```erlang 
+#{carrots_eaten_total =>
+    #{help => "Total number of carrots eaten on a meal",
+      type => counter,
+      values => #{rabbit => 3}},
+  holes_dug_total =>
+    #{help => "Total number of holes dug in an afternoon",
+      type => counter,
+      values => #{rabbit => 0}}}
+```
 
 
 This format uses the counter `Name` as a unique value label for the metrics.
