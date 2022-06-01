@@ -19,12 +19,7 @@
 
 -type group() :: term().
 -opaque group_ref() :: ets:tid().
--type label_element() :: atom() | string().
--type name() :: atom() |
-                binary() |
-                string() |
-                {label_element(), label_element()} |
-                [{label_element(), label_element()}].
+-type name() :: term().
 
 -type field_spec() :: {Name :: atom(), Position :: pos_integer(),
                        Type :: counter | gauge, Description :: string()}.
