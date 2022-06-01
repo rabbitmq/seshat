@@ -91,7 +91,7 @@ overview(Group) ->
       end, #{}, seshat_counters_server:get_table(Group)).
 
 -spec overview(group(), name()) ->
-    #{atom() => integer()}.
+    #{atom() => integer()} | undefined.
 overview(Group, Name) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
         [{Name, Ref, Fields}] ->
@@ -99,7 +99,7 @@ overview(Group, Name) ->
                                 Acc0#{Key => counters:get(Ref, Index)}
                         end, #{}, Fields);
         _ ->
-            #{}
+            undefined
     end.
 
 -spec format(group()) -> format_result().
