@@ -57,13 +57,16 @@ new(Group, Name, Fields) when is_list(Fields) ->
             error(invalid_field_specification)
     end.
 
+%% fetch/2 is NOT meant to be called for every counter update.
+%% Instead, for higher performance, the consuming application should store the returned counters_ref
+%% in a stateful Erlang module or in persistent_term (see persistent:term_put/2).
 -spec fetch(group(), name()) -> undefined | counters:counters_ref().
 fetch(Group, Name) ->
     TRef = seshat_counters_server:get_table(Group),
-    case ets:lookup(TRef, Name) of
-        [{Name, Ref, _}] ->
-            Ref;
-        _ ->
+    try
+        ets:lookup_element(TRef, Name, 2)
+    catch
+        error:badarg ->
             undefined
     end.
 
