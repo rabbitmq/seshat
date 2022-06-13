@@ -40,5 +40,6 @@ delete_table() ->
     Tables = lists:sort(maps:keys(seshat_counters_server:get_tables())),
     ?assertMatch(["burrows", "nests"], Tables),
     seshat_counters_server:delete_table("nests"),
+    seshat_counters_server:delete_table("nests"),
     Tables1 = lists:sort(maps:keys(seshat_counters_server:get_tables())),
     ?assertMatch(["burrows"], Tables1).
