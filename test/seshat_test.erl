@@ -48,6 +48,9 @@ overview() ->
     ?assertMatch(#{carrots_eaten_total := 3,
                    holes_dug_total := 1},
                  seshat:overview(Group, "rabbit")),
+
+    ?assertMatch(#{holes_dug_total := 1},
+                 seshat:counters(Group, "rabbit", [holes_dug_total])),
     ok.
 
 prometheus_format_multiple_names() ->
