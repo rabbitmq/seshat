@@ -13,6 +13,7 @@
          fetch/2,
          overview/1,
          overview/2,
+         counters/3,
          delete/2,
          format/1
         ]).
@@ -95,6 +96,23 @@ overview(Group, Name) ->
         [{Name, Ref, Fields}] ->
             lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
                                 Acc0#{Key => counters:get(Ref, Index)}
+                        end, #{}, Fields);
+        _ ->
+            undefined
+    end.
+
+-spec counters(group(), name(), [atom()]) ->
+    #{atom() => integer()} | undefined.
+counters(Group, Name, FieldNames) ->
+    case ets:lookup(seshat_counters_server:get_table(Group), Name) of
+        [{Name, Ref, Fields}] ->
+            lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
+                                case lists:member(Key, FieldNames) of
+                                    true ->
+                                        Acc0#{Key => counters:get(Ref, Index)};
+                                    false ->
+                                        Acc0
+                                end
                         end, #{}, Fields);
         _ ->
             undefined
