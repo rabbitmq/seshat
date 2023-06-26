@@ -13,6 +13,7 @@
          fetch/2,
          overview/1,
          overview/2,
+         counters/2,
          counters/3,
          delete/2,
          format/1
@@ -77,6 +78,7 @@ delete(Group, Name) ->
     true = ets:delete(TRef, Name),
     ok.
 
+%%% Use counters/2
 -spec overview(group()) ->
     #{name() => #{atom() => integer()}}.
 overview(Group) ->
@@ -92,6 +94,11 @@ overview(Group) ->
 -spec overview(group(), name()) ->
     #{atom() => integer()} | undefined.
 overview(Group, Name) ->
+    counters(Group, Name).
+
+-spec counters(group(), name()) ->
+    #{atom() => integer()} | undefined.
+counters(Group, Name) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
         [{Name, Ref, Fields}] ->
             lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
