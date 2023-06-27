@@ -26,13 +26,16 @@
 -type field_spec() :: {Name :: atom(), Position :: pos_integer(),
                        Type :: counter | gauge, Description :: string()}.
 
+-type fields_spec() :: [field_spec()] | {persistent_term, term()}.
+
 -type format_result() :: #{FieldName :: atom() =>
                            #{type => counter | gauge,
                              help => string(),
                              values => #{name() => integer()}}}.
 
 -export_type([group_ref/0,
-              field_spec/0]).
+              field_spec/0,
+              fields_spec/0]).
 
 -spec new_group(group()) -> group_ref().
 new_group(Group) ->
@@ -42,21 +45,16 @@ new_group(Group) ->
 delete_group(Group) ->
     seshat_counters_server:delete_table(Group).
 
--spec new(group(), name(), [field_spec()]) ->
+-spec new(group(), name(), fields_spec()) ->
     counters:counters_ref().
 new(Group, Name, Fields) when is_list(Fields) ->
-    Size = length(Fields),
-    %% TODO: validate that positions are correct, i.e. not out of range
-    %% or duplicated
-    ExpectedPositions = lists:seq(1, Size),
-    Positions = lists:sort([P || {_, P, _, _} <- Fields]),
-    case ExpectedPositions == Positions of
-        true ->
-            CRef = counters:new(Size, [write_concurrency]),
-            ok = register_counter(Group, Name, CRef, Fields),
-            CRef;
-        false ->
-            error(invalid_field_specification)
+    new_counter(Group, Name, Fields, Fields);
+new(Group, Name, {persistent_term, PTerm} = FieldsSpec) ->
+    case persistent_term:get(PTerm, undefined) of
+        undefined ->
+            error({non_existent_fields_spec, FieldsSpec});
+        Fields ->
+            new_counter(Group, Name, Fields, FieldsSpec)
     end.
 
 %% fetch/2 is NOT meant to be called for every counter update.
@@ -83,7 +81,8 @@ delete(Group, Name) ->
     #{name() => #{atom() => integer()}}.
 overview(Group) ->
     ets:foldl(
-      fun({Name, Ref, Fields}, Acc) ->
+      fun({Name, Ref, Fields0}, Acc) ->
+              Fields = resolve_fields(Fields0),
               Counters = lists:foldl(
                            fun ({Key, Index, _Type, _Description}, Acc0) ->
                                    Acc0#{Key => counters:get(Ref, Index)}
@@ -100,7 +99,8 @@ overview(Group, Name) ->
     #{atom() => integer()} | undefined.
 counters(Group, Name) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields}] ->
+        [{Name, Ref, Fields0}] ->
+            Fields = resolve_fields(Fields0),
             lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
                                 Acc0#{Key => counters:get(Ref, Index)}
                         end, #{}, Fields);
@@ -112,7 +112,8 @@ counters(Group, Name) ->
     #{atom() => integer()} | undefined.
 counters(Group, Name, FieldNames) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields}] ->
+        [{Name, Ref, Fields0}] ->
+            Fields = resolve_fields(Fields0),
             lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
                                 case lists:member(Key, FieldNames) of
                                     true ->
@@ -127,7 +128,8 @@ counters(Group, Name, FieldNames) ->
 
 -spec format(group()) -> format_result().
 format(Group) ->
-    ets:foldl(fun({Labels, Ref, Fields}, Acc) ->
+    ets:foldl(fun({Labels, Ref, Fields0}, Acc) ->
+                      Fields = resolve_fields(Fields0),
                       lists:foldl(
                         fun ({Name, Index, Type, Help}, Acc0) ->
                                 InitialMetric = #{type => Type,
@@ -144,7 +146,29 @@ format(Group) ->
 
 %% internal
 
+resolve_fields(Fields) when is_list(Fields) ->
+    Fields;
+resolve_fields({persistent_term, PTerm}) ->
+    %% TODO error handling
+    persistent_term:get(PTerm).
+
 register_counter(Group, Name, Ref, Fields) ->
     TRef = seshat_counters_server:get_table(Group),
     true = ets:insert(TRef, {Name, Ref, Fields}),
     ok.
+
+new_counter(Group, Name, Fields, FieldsSpec) ->
+    Size = length(Fields),
+    %% TODO: validate that positions are correct, i.e. not out of range
+    %% or duplicated
+    ExpectedPositions = lists:seq(1, Size),
+    Positions = lists:sort([P || {_, P, _, _} <- Fields]),
+    case ExpectedPositions == Positions of
+        true ->
+            CRef = counters:new(Size, [write_concurrency]),
+            ok = register_counter(Group, Name, CRef, FieldsSpec),
+            CRef;
+        false ->
+            error(invalid_field_specification)
+    end.
+
