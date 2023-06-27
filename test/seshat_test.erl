@@ -19,11 +19,12 @@ test_suite_test_() ->
      fun setup/0,
      fun cleanup/1,
      [ fun overview/0,
+       fun counters_with_persistent_term_field_spec/0,
        fun prometheus_format_multiple_names/0,
        fun invalid_fields/0 ]}.
 
 overview() ->
-    Group = "pets",
+    Group = ?FUNCTION_NAME,
     Counters = [
                 {
                  carrots_eaten_total, 1, counter,
@@ -51,6 +52,40 @@ overview() ->
 
     ?assertMatch(#{holes_dug_total := 1},
                  seshat:counters(Group, "rabbit", [holes_dug_total])),
+    ok.
+
+counters_with_persistent_term_field_spec() ->
+    Group = ?FUNCTION_NAME,
+    Counters = [
+                {
+                 carrots_eaten_total, 1, counter,
+                 "Total number of carrots eaten on a meal"
+                },
+                {
+                 holes_dug_total, 2, counter,
+                 "Total number of holes dug in an afternoon"
+                }
+               ],
+
+    persistent_term:put(pets_field_spec, Counters),
+    seshat:new_group(Group),
+    seshat:new(Group, "rabbit", {persistent_term, pets_field_spec}),
+    Ref = seshat:fetch(Group, "rabbit"),
+    counters:add(Ref, 1, 3),
+    counters:add(Ref, 2, 1),
+    Overview = seshat:overview(Group),
+    ?assertEqual(
+       #{"rabbit" => #{carrots_eaten_total => 3,
+                       holes_dug_total => 1}},
+       Overview),
+
+    ?assertMatch(#{carrots_eaten_total := 3,
+                   holes_dug_total := 1},
+                 seshat:overview(Group, "rabbit")),
+
+    ?assertMatch(#{holes_dug_total := 1},
+                 seshat:counters(Group, "rabbit", [holes_dug_total])),
+
     ok.
 
 prometheus_format_multiple_names() ->
