@@ -25,6 +25,13 @@ jobs:
           exit 1
         fi
 
+        VERSION_APP_SRC="$(erl -eval '{ok, [{application, _, AppInfo}]} = file:consult("src/seshat.app.src"), Version = proplists:get_value(vsn, AppInfo), io:fwrite(Version), halt().' -noshell)"
+
+        if [[ "${{ github.ref_name }}" != "v$VERSION_APP_SRC" ]]; then
+          echo "Version in src/seshat.app.src ($VERSION_APP_SRC) does not match tag (${{ github.ref_name }})"
+          exit 1
+        fi
+
         VERSION_BAZEL="$(cat MODULE.bazel | buildozer 'print version' -:%module)"
 
         if [[ "${{ github.ref_name }}" != "v$VERSION_BAZEL" ]]; then

@@ -1,6 +1,6 @@
 PROJECT = seshat
 PROJECT_DESCRIPTION = Metrics library built for RabbitMQ, with a Prometheus exposition format built-in
-PROJECT_VERSION = 0.1.0
+PROJECT_VERSION = 0.6.1
 
 define PROJECT_ENV
 [
