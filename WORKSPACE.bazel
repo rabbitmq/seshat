@@ -1,27 +1,34 @@
-load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+workspace(name = "rabbitmq_seshat")
 
-git_repository(
-    name = "rules_erlang",
-    branch = "experimental-gazelle-extension",
-    remote = "https://github.com/rabbitmq/rules_erlang.git",
+load(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
+load(
+    "@bazel_tools//tools/build_defs/repo:git.bzl",
+    "git_repository",
 )
 
-load("@rules_erlang//:internal_deps.bzl", "rules_erlang_internal_deps")
+http_archive(
+    name = "io_buildbuddy_buildbuddy_toolchain",
+    sha256 = "a2a5cccec251211e2221b1587af2ce43c36d32a42f5d881737db3b546a536510",
+    strip_prefix = "buildbuddy-toolchain-829c8a574f706de5c96c54ca310f139f4acda7dd",
+    urls = ["https://github.com/buildbuddy-io/buildbuddy-toolchain/archive/829c8a574f706de5c96c54ca310f139f4acda7dd.tar.gz"],
+)
 
-rules_erlang_internal_deps()
+load("@io_buildbuddy_buildbuddy_toolchain//:deps.bzl", "buildbuddy_deps")
 
-load("@rules_erlang//:internal_setup.bzl", "rules_erlang_internal_setup")
+buildbuddy_deps()
 
-rules_erlang_internal_setup()
+load("@io_buildbuddy_buildbuddy_toolchain//:rules.bzl", "buildbuddy")
 
-load("@rules_erlang//gazelle:deps.bzl", "gazelle_deps")
+buildbuddy(
+    name = "buildbuddy_toolchain",
+    llvm = True,
+)
 
-gazelle_deps()
-
-load("@rules_erlang//:rules_erlang.bzl", "erlang_config")
-
-erlang_config()
-
-load("@erlang_config//:defaults.bzl", "register_defaults")
-
-register_defaults()
+git_repository(
+    name = "rbe",
+    branch = "linux-rbe",
+    remote = "https://github.com/rabbitmq/rbe-erlang-platform.git",
+)
