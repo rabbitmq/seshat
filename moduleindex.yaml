@@ -1,0 +1,5 @@
+seshat:
+- seshat
+- seshat_app
+- seshat_counters_server
+- seshat_sup
