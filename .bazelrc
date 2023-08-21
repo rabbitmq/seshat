@@ -18,6 +18,11 @@ build:buildbuddy --remote_download_minimal
 build:buildbuddy --build_metadata=REPO_URL=https://github.com/rabbitmq/seshat.git
 build:buildbuddy --experimental_remote_cache_compression
 build:buildbuddy --experimental_remote_cache_async
+build:buildbuddy --noslim_profile
+build:buildbuddy --experimental_profile_include_target_label
+build:buildbuddy --experimental_profile_include_primary_output
+build:buildbuddy --experimental_remote_build_event_upload=minimal
+build:buildbuddy --nolegacy_important_outputs
 
 build:rbe --config=buildbuddy
 
