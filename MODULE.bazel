@@ -53,6 +53,26 @@ erlang_dev_package.hex_package(
     name = "eunit_formatters",
     version = "0.5.0",
     build_file = "@rabbitmq_seshat//bzl:BUILD.eunit_formatters",
+#     build_file_content = """\
+# load("@rules_erlang//:erlc_opts_file.bzl", "erlc_opts_file")
+# load("@rules_erlang//:erlang_app_sources_analysis.bzl", "erlang_app_sources_analysis")
+
+# erlc_opts_file(
+#     name = "erlc_opts_file",
+#     values = DEFAULT_ERLC_OPTS + [
+#         "-Dnamespaced_dicts",
+#     ],
+#     out = "erlc_opts",
+# )
+
+# erlang_app_sources_analysis(
+#     name = "srcs",
+#     app_name = "eunit_formatters",
+#     erlc_opts_file = ":erlc_opts_file",
+#     visibility = ["//visibility:public"],
+# )
+# """,
+    testonly = True,
 )
 
 use_repo(

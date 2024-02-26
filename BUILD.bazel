@@ -1,7 +1,10 @@
 load("@rules_erlang//:dialyze.bzl", "dialyze", "plt")
 load("@rules_erlang//:xref2.bzl", "xref")
 load("@rules_erlang//:erlang_bytecode2.bzl", "erlc_opts")
-load("@rules_erlang//:erlang_app.bzl", "erlang_app", "test_erlang_app")
+load("@rules_erlang//:erlc_opts_file.bzl", "erlc_opts_file")
+load("@rules_erlang//:erlang_app_sources.bzl", "erlang_app_sources")
+load("@rules_erlang//:compile_many.bzl", "compile_many")
+load("@rules_erlang//private:extract_app.bzl", "extract_app")
 load("@rules_erlang//:eunit2.bzl", "eunit")
 load("@rules_erlang//:ct.bzl", "assert_suites2")
 load(":app.bzl", "all_beam_files", "all_srcs", "all_test_beam_files", "test_suite_beam_files")
@@ -59,41 +62,41 @@ plt(
     visibility = [":__subpackages__"],
 )
 
-all_beam_files(name = "all_beam_files")
+# all_beam_files(name = "all_beam_files")
 
-all_test_beam_files(name = "all_test_beam_files")
+# all_test_beam_files(name = "all_test_beam_files")
 
 test_suite_beam_files(name = "test_suite_beam_files")
 
 all_srcs(name = "all_srcs")
 
-erlang_app(
-    name = "erlang_app",
-    srcs = [":all_srcs"],
-    hdrs = [":public_hdrs"],
-    app_name = "seshat",
-    beam_files = [":beam_files"],
-    extra_apps = [
-        "crypto",
-        "sasl",
-    ],
-    license_files = [":license_files"],
-    priv = [":priv"],
-)
+# erlang_app(
+#     name = "erlang_app",
+#     srcs = [":all_srcs"],
+#     hdrs = [":public_hdrs"],
+#     app_name = "seshat",
+#     beam_files = [":beam_files"],
+#     extra_apps = [
+#         "crypto",
+#         "sasl",
+#     ],
+#     license_files = [":license_files"],
+#     priv = [":priv"],
+# )
 
-test_erlang_app(
-    name = "test_erlang_app",
-    srcs = [":all_srcs"],
-    hdrs = [":public_and_private_hdrs"],
-    app_name = "seshat",
-    beam_files = [":test_beam_files"],
-    extra_apps = [
-        "crypto",
-        "sasl",
-    ],
-    license_files = [":license_files"],
-    priv = [":priv"],
-)
+# test_erlang_app(
+#     name = "test_erlang_app",
+#     srcs = [":all_srcs"],
+#     hdrs = [":public_and_private_hdrs"],
+#     app_name = "seshat",
+#     beam_files = [":test_beam_files"],
+#     extra_apps = [
+#         "crypto",
+#         "sasl",
+#     ],
+#     license_files = [":license_files"],
+#     priv = [":priv"],
+# )
 
 alias(
     name = "seshat",
@@ -128,3 +131,120 @@ eunit(
 )
 
 assert_suites2()
+
+compile_many(
+    name = "deps",
+    apps = [
+        "@eunit_formatters//:srcs",
+    ],
+)
+
+# erl_analyze(
+#     name = "analyze",
+#     hdrs = glob([
+#         "include/**/*.hrl",
+#         "src/**/*.hrl",
+#     ]),
+#     srcs = glob([
+#         "src/**/*.erl",
+#     ]),
+#     suffix = "normal",
+#     # dest = "src",
+#     erlc_opts = ":erlc_opts",
+# )
+
+# erl_analyze(
+#     name = "test_analyze",
+#     hdrs = glob([
+#         "include/**/*.hrl",
+#         "src/**/*.hrl",
+#     ]),
+#     srcs = glob([
+#         "src/**/*.erl",
+#     ]),
+#     suffix = "test",
+#     erlc_opts = ":test_erlc_opts",
+# )
+
+erlc_opts_file(
+    name = "erlc_opts_file",
+    values = select({
+        "@rules_erlang//:debug_build": [
+            "+debug_info",
+            "+recv_opt_info",
+            "+warn_export_vars",
+            "+warn_shadow_vars",
+            "+warn_obsolete_guard",
+        ],
+        "//conditions:default": [
+            "+debug_info",
+            "+recv_opt_info",
+            "+warn_export_vars",
+            "+warn_shadow_vars",
+            "+warn_obsolete_guard",
+            "+deterministic",
+        ],
+    }),
+    out = "erlc_opts_file_",
+)
+
+erlc_opts_file(
+    name = "test_erlc_opts_file",
+    values = select({
+        "@rules_erlang//:debug_build": [
+            "+debug_info",
+            "-DTEST=1",
+        ],
+        "//conditions:default": [
+            "+debug_info",
+            "-DTEST=1",
+            "+deterministic",
+        ],
+    }),
+    out = "test_erlc_opts_file_",
+)
+
+erlang_app_sources(
+    name = "seshat_srcs",
+    app_name = "seshat",
+    erlc_opts_file = ":erlc_opts_file",
+    visibility = ["//visibility:public"],
+)
+
+erlang_app_sources(
+    name = "test_seshat_srcs",
+    app_name = "seshat",
+    erlc_opts_file = ":test_erlc_opts_file",
+    visibility = ["//visibility:public"],
+)
+
+compile_many(
+    name = "apps",
+    apps = [
+        ":seshat_srcs",
+    ],
+)
+
+compile_many(
+    name = "test_apps",
+    apps = [
+        ":test_seshat_srcs",
+    ],
+    testonly = True,
+)
+
+extract_app(
+    name = "erlang_app",
+    erl_libs = ":apps",
+    app_name = "seshat",
+    visibility = ["//visibility:public"],
+)
+
+extract_app(
+    name = "test_erlang_app",
+    erl_libs = ":test_apps",
+    app_name = "seshat",
+    beam_dest = "test",
+    testonly = True,
+    visibility = ["//visibility:public"],
+)
