@@ -17,7 +17,8 @@
          counters/2,
          counters/3,
          delete/2,
-         format/1
+         format/1,
+         format/2
         ]).
 
 -type group() :: term().
@@ -145,20 +146,19 @@ counters(Group, Name, FieldNames) ->
 format(Group) ->
     ets:foldl(fun({_Name, Ref, Fields0, Label}, Acc) ->
                       Fields = resolve_fields(Fields0),
-                      lists:foldl(
-                        fun ({MetricName, Index, Type, Help}, Acc0) ->
-                                InitialMetric = #{type => Type,
-                                                  help => Help,
-                                                  values => #{}},
-                                Metric = maps:get(MetricName, Acc0,
-                                                  InitialMetric),
-                                Values = maps:get(values, Metric),
-                                Counter = counters:get(Ref, Index),
-                                Values1 = Values#{Label => Counter},
-                                Metric1 = Metric#{values => Values1},
-                                Acc0#{MetricName => Metric1}
-                        end, Acc, Fields)
+                      format_fields(Fields, Ref, Label, Acc)
               end, #{}, seshat_counters_server:get_table(Group)).
+
+-spec format(group(), name()) -> format_result().
+
+format(Group, Name) ->
+    case ets:lookup(seshat_counters_server:get_table(Group), Name) of
+        [{Name, Ref, Fields0, Label}] ->
+            Fields = resolve_fields(Fields0),
+            format_fields(Fields, Ref, Label, #{});
+        _ ->
+            #{}
+    end.
 
 %% internal
 
@@ -186,3 +186,16 @@ new_counter(Group, Name, Fields, FieldsSpec, Label) ->
             error(invalid_field_specification)
     end.
 
+format_fields(Fields, Ref, Label, Acc) ->
+    lists:foldl(
+      fun ({MetricName, Index, Type, Help}, Acc0) ->
+              InitialMetric = #{type => Type,
+                                help => Help,
+                                values => #{}},
+              Metric = maps:get(MetricName, Acc0, InitialMetric),
+              Values = maps:get(values, Metric),
+              Counter = counters:get(Ref, Index),
+              Values1 = Values#{Label => Counter},
+              Metric1 = Metric#{values => Values1},
+              Acc0#{MetricName => Metric1}
+      end, Acc, Fields).
