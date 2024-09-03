@@ -161,8 +161,6 @@ register_counter(Group, Name, Ref, Fields) ->
 
 new_counter(Group, Name, Fields, FieldsSpec) ->
     Size = length(Fields),
-    %% TODO: validate that positions are correct, i.e. not out of range
-    %% or duplicated
     ExpectedPositions = lists:seq(1, Size),
     Positions = lists:sort([P || {_, P, _, _} <- Fields]),
     case ExpectedPositions == Positions of
