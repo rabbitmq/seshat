@@ -21,6 +21,7 @@ test_suite_test_() ->
      [ fun overview/0,
        fun counters_with_persistent_term_field_spec/0,
        fun prometheus_format_multiple_names/0,
+       fun prometheus_format_with_labels/0,
        fun invalid_fields/0 ]}.
 
 overview() ->
@@ -99,6 +100,20 @@ prometheus_format_multiple_names() ->
                                           help => "Total foos given",
                                           values => #{{name, me} => 0,
                                                       {name, you} => 0}}},
+    ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
+    ok.
+
+prometheus_format_with_labels() ->
+    Group = people,
+    Counters = [{foo, 1, counter, "Total foos given"}],
+    seshat:new_group(Group),
+    seshat:new(Group, {name, you}, Counters, #{name => "Monet"}),
+    seshat:new(Group, {name, me}, Counters, #{name => "Manet"}),
+    PrometheusFormat = seshat:format(Group),
+    ExpectedPrometheusFormat = #{foo => #{type => counter,
+                                          help => "Total foos given",
+                                          values => #{#{name => "Monet"} => 0,
+                                                      #{name => "Manet"} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
