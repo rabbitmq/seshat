@@ -10,6 +10,7 @@
 -export([new_group/1,
          delete_group/1,
          new/3,
+         new/4,
          fetch/2,
          overview/1,
          overview/2,
@@ -31,11 +32,14 @@
 -type format_result() :: #{FieldName :: atom() =>
                            #{type => counter | gauge,
                              help => string(),
-                             values => #{name() => integer()}}}.
+                             values => #{label() => integer()}}}.
+
+-type label() :: term().
 
 -export_type([group_ref/0,
               field_spec/0,
-              fields_spec/0]).
+              fields_spec/0,
+              label/0]).
 
 -spec new_group(group()) -> group_ref().
 new_group(Group) ->
@@ -47,14 +51,23 @@ delete_group(Group) ->
 
 -spec new(group(), name(), fields_spec()) ->
     counters:counters_ref().
+
 new(Group, Name, Fields) when is_list(Fields) ->
-    new_counter(Group, Name, Fields, Fields);
-new(Group, Name, {persistent_term, PTerm} = FieldsSpec) ->
+    new(Group, Name, Fields, Name);
+new(Group, Name, {persistent_term, _PTerm} = FieldsSpec) ->
+    new(Group, Name, FieldsSpec, Name).
+
+-spec new(group(), name(), fields_spec(), label()) ->
+    counters:counters_ref().
+
+new(Group, Name, Fields, Label) when is_list(Fields) ->
+    new_counter(Group, Name, Fields, Fields, Label);
+new(Group, Name, {persistent_term, PTerm} = FieldsSpec, Label) ->
     case persistent_term:get(PTerm, undefined) of
         undefined ->
             error({non_existent_fields_spec, FieldsSpec});
         Fields ->
-            new_counter(Group, Name, Fields, FieldsSpec)
+            new_counter(Group, Name, Fields, FieldsSpec, Label)
     end.
 
 %% fetch/2 is NOT meant to be called for every counter update.
@@ -81,7 +94,7 @@ delete(Group, Name) ->
     #{name() => #{atom() => integer()}}.
 overview(Group) ->
     ets:foldl(
-      fun({Name, Ref, Fields0}, Acc) ->
+      fun({Name, Ref, Fields0, _Label}, Acc) ->
               Fields = resolve_fields(Fields0),
               Counters = lists:foldl(
                            fun ({Key, Index, _Type, _Description}, Acc0) ->
@@ -99,7 +112,7 @@ overview(Group, Name) ->
     #{atom() => integer()} | undefined.
 counters(Group, Name) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields0}] ->
+        [{Name, Ref, Fields0, _Label}] ->
             Fields = resolve_fields(Fields0),
             lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
                                 Acc0#{Key => counters:get(Ref, Index)}
@@ -112,7 +125,7 @@ counters(Group, Name) ->
     #{atom() => integer()} | undefined.
 counters(Group, Name, FieldNames) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields0}] ->
+        [{Name, Ref, Fields0, _Label}] ->
             Fields = resolve_fields(Fields0),
             lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
                                 case lists:member(Key, FieldNames) of
@@ -128,19 +141,20 @@ counters(Group, Name, FieldNames) ->
 
 -spec format(group()) -> format_result().
 format(Group) ->
-    ets:foldl(fun({Labels, Ref, Fields0}, Acc) ->
+    ets:foldl(fun({_Name, Ref, Fields0, Label}, Acc) ->
                       Fields = resolve_fields(Fields0),
                       lists:foldl(
-                        fun ({Name, Index, Type, Help}, Acc0) ->
+                        fun ({MetricName, Index, Type, Help}, Acc0) ->
                                 InitialMetric = #{type => Type,
                                                   help => Help,
                                                   values => #{}},
-                                Metric = maps:get(Name, Acc0, InitialMetric),
+                                Metric = maps:get(MetricName, Acc0,
+                                                  InitialMetric),
                                 Values = maps:get(values, Metric),
                                 Counter = counters:get(Ref, Index),
-                                Values1 = Values#{Labels => Counter},
+                                Values1 = Values#{Label => Counter},
                                 Metric1 = Metric#{values => Values1},
-                                Acc0#{Name => Metric1}
+                                Acc0#{MetricName => Metric1}
                         end, Acc, Fields)
               end, #{}, seshat_counters_server:get_table(Group)).
 
@@ -152,19 +166,19 @@ resolve_fields({persistent_term, PTerm}) ->
     %% TODO error handling
     persistent_term:get(PTerm).
 
-register_counter(Group, Name, Ref, Fields) ->
+register_counter(Group, Name, Ref, Fields, Label) ->
     TRef = seshat_counters_server:get_table(Group),
-    true = ets:insert(TRef, {Name, Ref, Fields}),
+    true = ets:insert(TRef, {Name, Ref, Fields, Label}),
     ok.
 
-new_counter(Group, Name, Fields, FieldsSpec) ->
+new_counter(Group, Name, Fields, FieldsSpec, Label) ->
     Size = length(Fields),
     ExpectedPositions = lists:seq(1, Size),
     Positions = lists:sort([P || {_, P, _, _} <- Fields]),
     case ExpectedPositions == Positions of
         true ->
             CRef = counters:new(Size, [write_concurrency]),
-            ok = register_counter(Group, Name, CRef, FieldsSpec),
+            ok = register_counter(Group, Name, CRef, FieldsSpec, Label),
             CRef;
         false ->
             error(invalid_field_specification)
