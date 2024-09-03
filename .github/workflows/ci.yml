@@ -16,8 +16,8 @@ jobs:
     # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix
     strategy:
       matrix:
-        otp: [23, 24]
-        os: [ubuntu-20.04]
+        otp: [25, 26, 27]
+        os: [ubuntu-latest]
 
     steps:
       - name: CHECKOUT REPOSITORY
