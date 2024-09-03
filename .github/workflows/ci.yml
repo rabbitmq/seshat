@@ -16,15 +16,15 @@ jobs:
     # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix
     strategy:
       matrix:
-        otp: [23, 24]
-        os: [ubuntu-20.04]
+        otp: [25, 26, 27]
+        os: [ubuntu-latest]
 
     steps:
       - name: CHECKOUT REPOSITORY
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: CONFIGURE OTP
-        uses: erlef/setup-beam@v1.7
+        uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
 
@@ -51,7 +51,7 @@ jobs:
         - "26"
     steps:
     - name: CHECKOUT
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: TEST
       run: |
         bazelisk test //... --config=rbe-${{ matrix.otp_major }}
