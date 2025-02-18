@@ -16,7 +16,7 @@ jobs:
     # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix
     strategy:
       matrix:
-        otp: [25, 26, 27]
+        otp: [26, 27]
         os: [ubuntu-latest]
 
     steps:
@@ -46,9 +46,8 @@ jobs:
       fail-fast: false
       matrix:
         otp_major:
-        - "24"
-        - "25"
         - "26"
+        - "27"
     steps:
     - name: CHECKOUT
       uses: actions/checkout@v4
