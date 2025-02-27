@@ -75,7 +75,7 @@ a pre-formatted binary.
 
 ## Copyright and License
 
-(c) 2007-2023 Broadcom. All Rights Reserved. The term Broadcom refers to Broadcom Inc. and/or its subsidiaries.
+(c) 2007-2025 Broadcom. All Rights Reserved. The term Broadcom refers to Broadcom Inc. and/or its subsidiaries.
 
 Double licensed under the ASL2 and MPL2.0.
 See [LICENSE](./LICENSE) for details.
