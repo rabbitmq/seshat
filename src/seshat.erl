@@ -26,7 +26,7 @@
 -type name() :: term().
 
 -type field_spec() :: {Name :: atom(), Position :: pos_integer(),
-                       Type :: counter | gauge, Description :: string()}.
+                       Type :: counter | gauge | ratio, Description :: string()}.
 
 -type fields_spec() :: [field_spec()] | {persistent_term, term()}.
 
@@ -186,7 +186,17 @@ new_counter(Group, Name, Fields, FieldsSpec, Label) ->
 
 format_fields(Fields, Ref, Label, Acc) ->
     lists:foldl(
-      fun ({MetricName, Index, Type, Help}, Acc0) ->
+      fun ({MetricName, Index, ratio, Help}, Acc0) ->
+              InitialMetric = #{type => gauge,
+                                help => Help,
+                                values => #{}},
+              Metric = maps:get(MetricName, Acc0, InitialMetric),
+              Values = maps:get(values, Metric),
+              Counter = counters:get(Ref, Index) / 100,
+              Values1 = Values#{Label => Counter},
+              Metric1 = Metric#{values => Values1},
+              Acc0#{MetricName => Metric1};
+        ({MetricName, Index, Type, Help}, Acc0) ->
               InitialMetric = #{type => Type,
                                 help => Help,
                                 values => #{}},
