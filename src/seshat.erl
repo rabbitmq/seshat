@@ -34,6 +34,7 @@
                              values => #{name() => integer()}}}.
 
 -export_type([name/0,
+              group/0,
               group_ref/0,
               field_spec/0,
               fields_spec/0]).
