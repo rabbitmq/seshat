@@ -23,6 +23,7 @@ test_suite_test_() ->
        fun prometheus_format_group/0,
        fun prometheus_format_name_from_group/0,
        fun prometheus_format_with_labels/0,
+       fun prometheus_format_ratio/0,
        fun invalid_fields/0 ]}.
 
 overview() ->
@@ -141,5 +142,40 @@ invalid_fields() ->
     ?assertError(invalid_field_specification,
                  seshat:new(Group, invalid_fields, Fields)),
 
+    ok.
+
+prometheus_format_ratio() ->
+    Group = ratios,
+    Counters = [{zero, 1, ratio, "Some ratio that happens to be 0%"},
+                {seventeen, 2, ratio, "Some ratio that happens to be 17%"},
+                {third, 3, ratio, "Some ratio that happens to be 33%"},
+                {all, 4, ratio, "Some ratio that happens to be 100%"}],
+    seshat:new_group(Group),
+    seshat:new(Group, {name, test}, Counters, #{name => test}),
+    Ref = seshat:fetch(Group, {name, test}),
+    counters:put(Ref, 1, 0),
+    counters:put(Ref, 2, 17),
+    counters:put(Ref, 3, 33),
+    counters:put(Ref, 4, 100),
+
+    PrometheusFormat = seshat:format(Group),
+    ExpectedPrometheusFormat = #{zero => #{type => gauge,
+                                           help => "Some ratio that happens to be 0%",
+                                           values => #{#{name => test} => 0.0}},
+                                 seventeen => #{type => gauge,
+                                            help => "Some ratio that happens to be 17%",
+                                            values => #{#{name => test} => 0.17}},
+                                 third => #{type => gauge,
+                                            help => "Some ratio that happens to be 33%",
+                                            values => #{#{name => test} => 0.33}},
+                                 all => #{type => gauge,
+                                          help => "Some ratio that happens to be 100%",
+                                          values => #{#{name => test} => 1.0}}},
+
+    maps:foreach(
+      fun (Name, Value) ->
+              ?assertEqual(Value, maps:get(Name, PrometheusFormat))
+      end,
+      ExpectedPrometheusFormat),
     ok.
 
