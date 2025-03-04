@@ -24,6 +24,7 @@ test_suite_test_() ->
        fun prometheus_format_name_from_group/0,
        fun prometheus_format_with_labels/0,
        fun prometheus_format_ratio/0,
+       fun prometheus_foobar/0,
        fun invalid_fields/0 ]}.
 
 overview() ->
@@ -113,7 +114,7 @@ prometheus_format_name_from_group() ->
     seshat:new(Group, {name, you}, Counters, #{name => you}),
     seshat:new(Group, {name, me}, Counters, #{name => me}),
     seshat:new(Group, ghost, Counters), % no labels, will be omitted
-    PrometheusFormat = seshat:format(Group, {name, me}),
+    PrometheusFormat = seshat:format_one(Group, {name, me}),
     ExpectedPrometheusFormat = #{foo => #{type => counter,
                                           help => "Total foos given",
                                           values => #{#{name => me} => 0}}},
@@ -131,6 +132,28 @@ prometheus_format_with_labels() ->
                                           help => "Total foos given",
                                           values => #{#{name => "Monet"} => 0,
                                                       #{name => "Manet"} => 0}}},
+    ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
+    ok.
+
+prometheus_foobar() ->
+    Group = things,
+    Counters = [
+                {foo, 1, counter, "Total foos"},
+                {bar, 2, counter, "Total bars"},
+                {baz, 3, counter, "Total bazs"}
+               ],
+    seshat:new_group(Group),
+    seshat:new(Group, thing1, Counters, #{name => "thing1"}),
+    seshat:new(Group, thing2, Counters, #{name => "thing2"}),
+    PrometheusFormat = seshat:format(Group, [foo, bar]),
+    ExpectedPrometheusFormat = #{foo => #{type => counter,
+                                          help => "Total foos",
+                                          values => #{#{name => "thing1"} => 0,
+                                                      #{name => "thing2"} => 0}},
+                                 bar => #{type => counter,
+                                          help => "Total bars",
+                                          values => #{#{name => "thing1"} => 0,
+                                                      #{name => "thing2"} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 

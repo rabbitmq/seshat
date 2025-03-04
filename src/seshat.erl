@@ -18,7 +18,8 @@
          counters/3,
          delete/2,
          format/1,
-         format/2
+         format/2,
+         format_one/2
         ]).
 
 -type group() :: term().
@@ -35,8 +36,8 @@
                              help => string(),
                              values => #{labels() => number()}}}.
 
--type label_name() :: atom().
--type label_value() :: term().
+-type label_name() :: atom() | unicode:chardata().
+-type label_value() :: atom() | unicode:chardata().
 
 -type labels() :: #{label_name() => label_value()}.
 
@@ -156,9 +157,19 @@ format(Group) ->
                       format_fields(Fields, Ref, Labels, Acc)
               end, #{}, seshat_counters_server:get_table(Group)).
 
--spec format(group(), name()) -> format_result().
+-spec format(group(), [atom()]) -> format_result().
+format(Group, FieldNames) ->
+    ets:foldl(fun
+                  ({_Id, _Ref, _Fields0, Labels}, Acc) when map_size(Labels) == 0 ->
+                      Acc;
+                  ({_Id, Ref, Fields0, Labels}, Acc) ->
+                      Fields1 = resolve_fields(Fields0),
+                      Fields = lists:filter(fun (F) -> lists:member(element(1, F), FieldNames) end, Fields1),
+                      format_fields(Fields, Ref, Labels, Acc)
+      end, #{}, seshat_counters_server:get_table(Group)).
 
-format(Group, Name) ->
+-spec format_one(group(), name()) -> format_result().
+format_one(Group, Name) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
         [{Name, Ref, Fields0, Labels}] when map_size(Labels) > 0 ->
             Fields = resolve_fields(Fields0),
