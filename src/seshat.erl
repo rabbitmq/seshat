@@ -148,7 +148,10 @@ counters(Group, Name, FieldNames) ->
 
 -spec format(group()) -> format_result().
 format(Group) ->
-    ets:foldl(fun({_Name, Ref, Fields0, Labels}, Acc) ->
+    ets:foldl(fun
+                  ({_Name, _Ref, _Fields0, Labels}, Acc) when map_size(Labels) == 0 ->
+                      Acc;
+                  ({_Name, Ref, Fields0, Labels}, Acc) ->
                       Fields = resolve_fields(Fields0),
                       format_fields(Fields, Ref, Labels, Acc)
               end, #{}, seshat_counters_server:get_table(Group)).
@@ -157,7 +160,7 @@ format(Group) ->
 
 format(Group, Name) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields0, Labels}] ->
+        [{Name, Ref, Fields0, Labels}] when map_size(Labels) > 0 ->
             Fields = resolve_fields(Fields0),
             format_fields(Fields, Ref, Labels, #{});
         _ ->

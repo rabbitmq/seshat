@@ -20,8 +20,8 @@ test_suite_test_() ->
      fun cleanup/1,
      [ fun overview/0,
        fun counters_with_persistent_term_field_spec/0,
-       fun prometheus_format_multiple_names/0,
-       fun prometheus_format_single_name/0,
+       fun prometheus_format_group/0,
+       fun prometheus_format_name_from_group/0,
        fun prometheus_format_with_labels/0,
        fun invalid_fields/0 ]}.
 
@@ -90,30 +90,32 @@ counters_with_persistent_term_field_spec() ->
 
     ok.
 
-prometheus_format_multiple_names() ->
+prometheus_format_group() ->
     Group = people,
     Counters = [{foo, 1, counter, "Total foos given"}],
     seshat:new_group(Group),
-    seshat:new(Group, {name, you}, Counters),
-    seshat:new(Group, {name, me}, Counters),
+    seshat:new(Group, you, Counters, #{name => you}),
+    seshat:new(Group, me, Counters, #{name => me}),
+    seshat:new(Group, ghost, Counters), % no labels, will be omitted
     PrometheusFormat = seshat:format(Group),
     ExpectedPrometheusFormat = #{foo => #{type => counter,
                                           help => "Total foos given",
-                                          values => #{{name, me} => 0,
-                                                      {name, you} => 0}}},
+                                          values => #{#{name => me} => 0,
+                                                      #{name => you} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_format_single_name() ->
+prometheus_format_name_from_group() ->
     Group = people,
     Counters = [{foo, 1, counter, "Total foos given"}],
     seshat:new_group(Group),
-    seshat:new(Group, {name, you}, Counters),
-    seshat:new(Group, {name, me}, Counters),
+    seshat:new(Group, {name, you}, Counters, #{name => you}),
+    seshat:new(Group, {name, me}, Counters, #{name => me}),
+    seshat:new(Group, ghost, Counters), % no labels, will be omitted
     PrometheusFormat = seshat:format(Group, {name, me}),
     ExpectedPrometheusFormat = #{foo => #{type => counter,
                                           help => "Total foos given",
-                                          values => #{{name, me} => 0}}},
+                                          values => #{#{name => me} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
