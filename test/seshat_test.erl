@@ -21,10 +21,10 @@ test_suite_test_() ->
      [ fun overview/0,
        fun counters_with_persistent_term_field_spec/0,
        fun prometheus_format_group/0,
-       fun prometheus_format_name_from_group/0,
-       fun prometheus_format_with_labels/0,
+       fun prometheus_format_one/0,
+       fun prometheus_format_with_many_labels/0,
        fun prometheus_format_ratio/0,
-       fun prometheus_foobar/0,
+       fun prometheus_format_selected_metrics/0,
        fun invalid_fields/0 ]}.
 
 overview() ->
@@ -41,9 +41,8 @@ overview() ->
                ],
     seshat:new_group(Group),
     seshat:new(Group, "rabbit", Counters),
-    Ref = seshat:fetch(Group, "rabbit"),
-    counters:add(Ref, 1, 3),
-    counters:add(Ref, 2, 1),
+    set_value(Group, "rabbit", carrots_eaten_total, 3),
+    set_value(Group, "rabbit", holes_dug_total, 1),
     Overview = seshat:overview(Group),
     ?assertEqual(
        #{"rabbit" => #{carrots_eaten_total => 3,
@@ -74,9 +73,8 @@ counters_with_persistent_term_field_spec() ->
     persistent_term:put(pets_field_spec, Counters),
     seshat:new_group(Group),
     seshat:new(Group, "rabbit", {persistent_term, pets_field_spec}),
-    Ref = seshat:fetch(Group, "rabbit"),
-    counters:add(Ref, 1, 3),
-    counters:add(Ref, 2, 1),
+    set_value(Group, "rabbit", carrots_eaten_total, 3),
+    set_value(Group, "rabbit", holes_dug_total, 1),
     Overview = seshat:overview(Group),
     ?assertEqual(
        #{"rabbit" => #{carrots_eaten_total => 3,
@@ -93,74 +91,75 @@ counters_with_persistent_term_field_spec() ->
     ok.
 
 prometheus_format_group() ->
-    Group = people,
-    Counters = [{foo, 1, counter, "Total foos given"}],
+    Group = widgets,
+    Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
-    seshat:new(Group, you, Counters, #{name => you}),
-    seshat:new(Group, me, Counters, #{name => me}),
-    seshat:new(Group, ghost, Counters), % no labels, will be omitted
+    seshat:new(Group, widget1, Counters, #{component => widget1}),
+    seshat:new(Group, widget2, Counters, #{component => widget2}),
+    seshat:new(Group, screw, Counters), % no labels, will be omitted
     PrometheusFormat = seshat:format(Group),
-    ExpectedPrometheusFormat = #{foo => #{type => counter,
-                                          help => "Total foos given",
-                                          values => #{#{name => me} => 0,
-                                                      #{name => you} => 0}}},
+    ExpectedPrometheusFormat = #{reads => #{type => counter,
+                                          help => "Total reads",
+                                          values => #{#{component => widget1} => 0,
+                                                      #{component => widget2} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_format_name_from_group() ->
-    Group = people,
-    Counters = [{foo, 1, counter, "Total foos given"}],
+prometheus_format_one() ->
+    Group = widgets,
+    Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
-    seshat:new(Group, {name, you}, Counters, #{name => you}),
-    seshat:new(Group, {name, me}, Counters, #{name => me}),
-    seshat:new(Group, ghost, Counters), % no labels, will be omitted
-    PrometheusFormat = seshat:format_one(Group, {name, me}),
-    ExpectedPrometheusFormat = #{foo => #{type => counter,
-                                          help => "Total foos given",
-                                          values => #{#{name => me} => 0}}},
+    seshat:new(Group, widget1, Counters, #{component => widget1}),
+    seshat:new(Group, widget2, Counters, #{component => widget2}),
+    PrometheusFormat = seshat:format_one(Group, widget2),
+    ExpectedPrometheusFormat = #{reads => #{type => counter,
+                                          help => "Total reads",
+                                          values => #{#{component => widget2} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_format_with_labels() ->
-    Group = people,
-    Counters = [{foo, 1, counter, "Total foos given"}],
+prometheus_format_with_many_labels() ->
+    Group = widgets,
+    Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
-    seshat:new(Group, {name, you}, Counters, #{name => "Monet"}),
-    seshat:new(Group, {name, me}, Counters, #{name => "Manet"}),
+    seshat:new(Group, widget1, Counters, #{component => "widget1", status => up}),
+    seshat:new(Group, widget2, Counters, #{component => "widget2", status => down}),
+    set_value(Group, widget1, reads, 1),
+    set_value(Group, widget2, reads, 2),
     PrometheusFormat = seshat:format(Group),
-    ExpectedPrometheusFormat = #{foo => #{type => counter,
-                                          help => "Total foos given",
-                                          values => #{#{name => "Monet"} => 0,
-                                                      #{name => "Manet"} => 0}}},
+    ExpectedPrometheusFormat = #{reads => #{type => counter,
+                                          help => "Total reads",
+                                          values => #{#{component => "widget1", status => up} => 1,
+                                                      #{component => "widget2", status => down} => 2}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_foobar() ->
-    Group = things,
+prometheus_format_selected_metrics() ->
+    Group = widgets,
     Counters = [
-                {foo, 1, counter, "Total foos"},
-                {bar, 2, counter, "Total bars"},
-                {baz, 3, counter, "Total bazs"}
+                {reads, 1, counter, "Total reads"},
+                {writes, 2, counter, "Total writes"},
+                {lookups, 3, counter, "Total lookups"}
                ],
     seshat:new_group(Group),
-    seshat:new(Group, thing1, Counters, #{name => "thing1"}),
-    seshat:new(Group, thing2, Counters, #{name => "thing2"}),
-    PrometheusFormat = seshat:format(Group, [foo, bar]),
-    ExpectedPrometheusFormat = #{foo => #{type => counter,
-                                          help => "Total foos",
-                                          values => #{#{name => "thing1"} => 0,
-                                                      #{name => "thing2"} => 0}},
-                                 bar => #{type => counter,
-                                          help => "Total bars",
-                                          values => #{#{name => "thing1"} => 0,
-                                                      #{name => "thing2"} => 0}}},
+    seshat:new(Group, thing1, Counters, #{component => "thing1"}),
+    seshat:new(Group, thing2, Counters, #{component => "thing2"}),
+    PrometheusFormat = seshat:format(Group, [reads, writes]),
+    ExpectedPrometheusFormat = #{reads => #{type => counter,
+                                          help => "Total reads",
+                                          values => #{#{component => "thing1"} => 0,
+                                                      #{component => "thing2"} => 0}},
+                                 writes => #{type => counter,
+                                          help => "Total writes",
+                                          values => #{#{component => "thing1"} => 0,
+                                                      #{component => "thing2"} => 0}}},
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
 invalid_fields() ->
-    Group = people,
-    Fields = [{foo, 1, counter, "Total foos given"},
-              {boo, 3, counter, "Total boos given"}],
+    Group = widgets,
+    Fields = [{reads, 1, counter, "Total reads"},
+              {writes, 3, counter, "Total writes"}],
     seshat:new_group(Group),
     ?assertError(invalid_field_specification,
                  seshat:new(Group, invalid_fields, Fields)),
@@ -168,37 +167,44 @@ invalid_fields() ->
     ok.
 
 prometheus_format_ratio() ->
-    Group = ratios,
-    Counters = [{zero, 1, ratio, "Some ratio that happens to be 0%"},
-                {seventeen, 2, ratio, "Some ratio that happens to be 17%"},
-                {third, 3, ratio, "Some ratio that happens to be 33%"},
-                {all, 4, ratio, "Some ratio that happens to be 100%"}],
+    Group = widgets,
+    Counters = [{pings, 1, ratio, "Some ratio that happens to be 0%"},
+                {pongs, 2, ratio, "Some ratio that happens to be 17%"},
+                {pangs, 3, ratio, "Some ratio that happens to be 33%"},
+                {rings, 4, ratio, "Some ratio that happens to be 100%"}],
     seshat:new_group(Group),
-    seshat:new(Group, {name, test}, Counters, #{name => test}),
-    Ref = seshat:fetch(Group, {name, test}),
-    counters:put(Ref, 1, 0),
-    counters:put(Ref, 2, 17),
-    counters:put(Ref, 3, 33),
-    counters:put(Ref, 4, 100),
+    seshat:new(Group, test_component, Counters, #{component => test}),
+    set_value(Group, test_component, pings, 0),
+    set_value(Group, test_component, pongs, 17),
+    set_value(Group, test_component, pangs, 33),
+    set_value(Group, test_component, rings, 100),
 
     PrometheusFormat = seshat:format(Group),
-    ExpectedPrometheusFormat = #{zero => #{type => gauge,
+    ExpectedPrometheusFormat = #{pings => #{type => gauge,
                                            help => "Some ratio that happens to be 0%",
-                                           values => #{#{name => test} => 0.0}},
-                                 seventeen => #{type => gauge,
+                                           values => #{#{component => test} => 0.0}},
+                                 pongs => #{type => gauge,
                                             help => "Some ratio that happens to be 17%",
-                                            values => #{#{name => test} => 0.17}},
-                                 third => #{type => gauge,
+                                            values => #{#{component => test} => 0.17}},
+                                 pangs => #{type => gauge,
                                             help => "Some ratio that happens to be 33%",
-                                            values => #{#{name => test} => 0.33}},
-                                 all => #{type => gauge,
+                                            values => #{#{component => test} => 0.33}},
+                                 rings  => #{type => gauge,
                                           help => "Some ratio that happens to be 100%",
-                                          values => #{#{name => test} => 1.0}}},
+                                          values => #{#{component => test} => 1.0}}},
 
-    maps:foreach(
-      fun (Name, Value) ->
-              ?assertEqual(Value, maps:get(Name, PrometheusFormat))
-      end,
-      ExpectedPrometheusFormat),
+    ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
+%% helpers
+
+set_value(Group, Id, Metric, Value) ->
+    [{Id, Ref, MetricDefs0, _Labels}] = ets:lookup(seshat_counters_server:get_table(Group), Id),
+    MetricDefs = resolve_fields(MetricDefs0),
+    {Metric, MetricId, _Type, _Help} = lists:keyfind(Metric, 1, MetricDefs),
+    counters:put(Ref, MetricId, Value).
+
+resolve_fields(Fields) when is_list(Fields) ->
+    Fields;
+resolve_fields({persistent_term, PTerm}) ->
+    persistent_term:get(PTerm).
