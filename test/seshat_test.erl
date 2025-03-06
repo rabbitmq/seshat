@@ -196,15 +196,15 @@ prometheus_format_ratio() ->
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-%% helpers
+%% test helpers
 
-set_value(Group, Id, Metric, Value) ->
-    [{Id, Ref, MetricDefs0, _Labels}] = ets:lookup(seshat_counters_server:get_table(Group), Id),
-    MetricDefs = resolve_fields(MetricDefs0),
-    {Metric, MetricId, _Type, _Help} = lists:keyfind(Metric, 1, MetricDefs),
-    counters:put(Ref, MetricId, Value).
+set_value(Group, Id, Name, Value) ->
+    [{Id, CRef, FieldSpec, _Labels}] = ets:lookup(seshat_counters_server:get_table(Group), Id),
+    Fields = resolve_fieldspec(FieldSpec),
+    {Name, Index, _Type, _Help} = lists:keyfind(Name, 1, Fields),
+    counters:put(CRef, Index, Value).
 
-resolve_fields(Fields) when is_list(Fields) ->
+resolve_fieldspec(Fields = FieldSpec) when is_list(FieldSpec) ->
     Fields;
-resolve_fields({persistent_term, PTerm}) ->
+resolve_fieldspec({persistent_term, PTerm}) ->
     persistent_term:get(PTerm).
