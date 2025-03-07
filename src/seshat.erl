@@ -19,6 +19,7 @@
          delete/2,
          format/1,
          format/2,
+         text_format/3,
          format_one/2
         ]).
 
@@ -312,3 +313,84 @@ format_fields(Fields, CRef, Labels, Acc) ->
                 MetricAcc1 = MetricAcc#{values => ValuesAcc1},
                 Acc0#{Name => MetricAcc1}
         end, Acc, Fields).
+
+%% @doc Return a Prometheus-formated text (as a binary),
+%% which can be directly returned by a Prometheus endpoint.
+%% The returned binary has the following structure:
+%% prefix_name_unit{label_key="value_value",...} Value
+%%
+%% Units are automatically appended based on the metric type.
+%%
+%% @param Group the name of an existing group
+%% @param Names the list of metrics to return
+%%
+-spec text_format(group(), string(), [atom()]) -> binary().
+text_format(Group, Prefix, Names) when is_list(Names) ->
+    PrefixBin = list_to_binary(Prefix ++ "_"),
+    Metrics = ets:foldl(fun
+                    ({_Name, _CRef, _FieldSpec, Labels}, Acc) when map_size(Labels) == 0 ->
+                        %% skip metrics with no labels; at some point we might want to export them
+                        Acc;
+                    ({_Name, CRef, FieldSpec, Labels}, Acc) ->
+                        Fields0 = resolve_fields_spec(FieldSpec),
+                        Fields = lists:filter(fun (F) -> lists:member(element(1, F), Names) end, Fields0),
+                        text_format_fields(Fields, CRef, Labels, PrefixBin, Acc)
+        end, #{}, seshat_counters_server:get_table(Group)),
+    MetricsBin = maps:fold(fun(_Name, Lines, Acc) ->
+        <<Acc/binary, Lines/binary, <<"\n">>/binary>>
+    end, <<>>, Metrics),
+    MetricsBin.
+
+text_format_fields(Fields, CRef, Labels, PrefixBin, Acc) ->
+    LabelsList = maps:to_list(Labels),
+    % transform the map of labels into "label1=value1,label2=value2"
+    LabelsBin0 = lists:foldl(
+        fun ({Name, Value}, LabelsAcc) ->
+            LabelKey = atom_to_binary(Name, utf8),
+            LabelValue = label_value_to_binary(Value),
+            <<LabelsAcc/binary, LabelKey/binary, "=\"", LabelValue/binary, "\",">>
+        end, <<>>, LabelsList),
+    % remove the final comma
+    LabelsBin = case LabelsBin0 of
+        <<>> -> <<>>;
+        _ -> binary:part(LabelsBin0, 0, byte_size(LabelsBin0) - 1)
+        end,
+    % produce the lines for each metric; we are itearting by object, but Prometheus
+    % output should be sorted by metric name with one HELP and one TYPE line for
+    % a given metric, so we accumulate in a map, with the metric name as key
+    lists:foldl(
+        fun ({Name, Index, Type, Help}, Acc0) ->
+                ComputedType = case Type of
+                                    ratio -> gauge;
+                                    Other -> Other
+                                end,
+                ComputedUnit = case Type of
+                                    ratio -> <<"_ratio">>;
+                                    _ -> <<"">>
+                                end,
+                ComputedValue = case Type of
+                                    ratio -> Ratio = counters:get(CRef, Index) / 100,
+                                    Ratio1= float_to_list(Ratio, [{decimals, 2}, compact]),
+                                    list_to_binary(Ratio1)
+                                    ;
+                                    _ -> integer_to_binary(counters:get(CRef, Index))
+                                end,
+                                NameBin = <<PrefixBin/binary, (atom_to_binary(Name, utf8))/binary, ComputedUnit/binary>>,
+                Line = <<NameBin/binary, "{", LabelsBin/binary, "} ", ComputedValue/binary>>,
+                case maps:get(Name, Acc0, <<>>) of
+                    <<>> ->
+                        HelpLine = <<"# HELP ", NameBin/binary, <<" ">>/binary, (list_to_binary(Help))/binary>>,
+                        TypeBin = atom_to_binary(ComputedType, utf8),
+                        TypeLine = <<"# TYPE ", NameBin/binary, <<" ">>/binary, TypeBin/binary>>,
+                        Acc0#{Name => <<HelpLine/binary, <<"\n">>/binary, TypeLine/binary, <<"\n">>/binary, Line/binary>>};
+                    Lines ->
+                        Acc0#{Name => <<Lines/binary, <<"\n">>/binary, Line/binary>>}
+                end
+        end, Acc, Fields).
+
+label_value_to_binary(Value) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+label_value_to_binary(Value) when is_list(Value) ->
+    list_to_binary(Value);
+label_value_to_binary(Value) when is_binary(Value) ->
+    Value.
