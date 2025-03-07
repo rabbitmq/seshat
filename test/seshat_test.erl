@@ -20,11 +20,12 @@ test_suite_test_() ->
      fun cleanup/1,
      [ fun overview/0,
        fun counters_with_persistent_term_field_spec/0,
-       fun prometheus_format_group/0,
-       fun prometheus_format_one/0,
-       fun prometheus_format_with_many_labels/0,
-       fun prometheus_format_ratio/0,
-       fun prometheus_format_selected_metrics/0,
+       fun format_group/0,
+       fun format_one/0,
+       fun format_with_many_labels/0,
+       fun format_ratio/0,
+       fun format_selected_metrics/0,
+       fun text_format_selected_metrics/0,
        fun invalid_fields/0 ]}.
 
 overview() ->
@@ -90,7 +91,7 @@ counters_with_persistent_term_field_spec() ->
 
     ok.
 
-prometheus_format_group() ->
+format_group() ->
     Group = widgets,
     Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
@@ -105,7 +106,7 @@ prometheus_format_group() ->
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_format_one() ->
+format_one() ->
     Group = widgets,
     Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
@@ -118,7 +119,7 @@ prometheus_format_one() ->
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_format_with_many_labels() ->
+format_with_many_labels() ->
     Group = widgets,
     Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
@@ -134,7 +135,7 @@ prometheus_format_with_many_labels() ->
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
-prometheus_format_selected_metrics() ->
+format_selected_metrics() ->
     Group = widgets,
     Counters = [
                 {reads, 1, counter, "Total reads"},
@@ -166,7 +167,7 @@ invalid_fields() ->
 
     ok.
 
-prometheus_format_ratio() ->
+format_ratio() ->
     Group = widgets,
     Counters = [{pings, 1, ratio, "Some ratio that happens to be 0%"},
                 {pongs, 2, ratio, "Some ratio that happens to be 17%"},
@@ -192,6 +193,46 @@ prometheus_format_ratio() ->
                                  rings  => #{type => gauge,
                                           help => "Some ratio that happens to be 100%",
                                           values => #{#{component => test} => 1.0}}},
+
+    ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
+    ok.
+
+text_format_selected_metrics() ->
+    Group = widgets,
+    Counters = [
+                {reads, 1, counter, "Total reads"},
+                {writes, 2, counter, "Total writes"},
+                {cached, 3, ratio, "Ratio of things served from cache"}
+                ],
+    seshat:new_group(Group),
+    seshat:new(Group, thing1, Counters, #{component => "thing1", version => "1.2.3"}),
+    seshat:new(Group, thing2, Counters, #{component => "thing2", some_atom => atom_value}),
+    seshat:new(Group, thing3, Counters, #{component => "thing3", some_binary => <<"binary_value">>}),
+    set_value(Group, thing1, reads, 1),
+    set_value(Group, thing1, writes, 2),
+    set_value(Group, thing1, cached, 10),
+    set_value(Group, thing2, reads, 3),
+    set_value(Group, thing2, writes, 4),
+    set_value(Group, thing2, cached, 100),
+    set_value(Group, thing3, reads, 1234),
+    set_value(Group, thing3, writes, 4321),
+    set_value(Group, thing3, cached, 17),
+    PrometheusFormat = binary_to_list(seshat:text_format(Group, "acme", [reads, writes, cached])),
+    ExpectedPrometheusFormat = "# HELP acme_reads Total reads\n"
+    "# TYPE acme_reads counter\n"
+    "acme_reads{version=\"1.2.3\",component=\"thing1\"} 1\n"
+    "acme_reads{component=\"thing2\",some_atom=\"atom_value\"} 3\n"
+    "acme_reads{component=\"thing3\",some_binary=\"binary_value\"} 1234\n"
+    "# HELP acme_writes Total writes\n"
+    "# TYPE acme_writes counter\n"
+    "acme_writes{version=\"1.2.3\",component=\"thing1\"} 2\n"
+    "acme_writes{component=\"thing2\",some_atom=\"atom_value\"} 4\n"
+    "acme_writes{component=\"thing3\",some_binary=\"binary_value\"} 4321\n"
+    "# HELP acme_cached_ratio Ratio of things served from cache\n"
+    "# TYPE acme_cached_ratio gauge\n"
+    "acme_cached_ratio{version=\"1.2.3\",component=\"thing1\"} 0.1\n"
+    "acme_cached_ratio{component=\"thing2\",some_atom=\"atom_value\"} 1.0\n"
+    "acme_cached_ratio{component=\"thing3\",some_binary=\"binary_value\"} 0.17\n",
 
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
