@@ -1,0 +1,23 @@
+Error: terminated
+[{io,format,
+     ["rebar ~ts on Erlang/OTP ~ts Erts ~ts~n",
+      ["3.24.0+build.5437.ref5495da14","27","15.2.3"]],
+     [{file,"io.erl"},
+      {line,198},
+      {error_info,#{cause => {io,terminated},module => erl_stdlib_errors}}]},
+ {rebar_prv_version,do,1,
+                    [{file,"/Users/mkuratczyk/workspace/rebar3/apps/rebar/src/rebar_prv_version.erl"},
+                     {line,36}]},
+ {rebar_core,do,2,
+             [{file,"/Users/mkuratczyk/workspace/rebar3/apps/rebar/src/rebar_core.erl"},
+              {line,155}]},
+ {rebar3,run_aux,2,
+         [{file,"/Users/mkuratczyk/workspace/rebar3/apps/rebar/src/rebar3.erl"},
+          {line,212}]},
+ {rebar3,main,1,
+         [{file,"/Users/mkuratczyk/workspace/rebar3/apps/rebar/src/rebar3.erl"},
+          {line,66}]},
+ {escript,run,2,[{file,"escript.erl"},{line,904}]},
+ {escript,start,1,[{file,"escript.erl"},{line,418}]},
+ {init,start_it,1,[]}]
+
