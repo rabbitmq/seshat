@@ -22,8 +22,6 @@ osiris.d
 *.jar
 
 Makefile.bak
-/user.bazelrc
-/bazel-*
 .DS_Store
 
 /.vscode/
