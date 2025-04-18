@@ -27,13 +27,17 @@
 -opaque group_ref() :: ets:tid().
 -type name() :: term().
 
+-type metric_type() :: counter | gauge | ratio | time_s | time_ms.
+
+-type prometheus_type() :: counter | gauge.
+
 -type field_spec() :: {Name :: atom(), Index :: pos_integer(),
-                       Type :: counter | gauge | ratio, Help :: string()}.
+                       Type :: metric_type(), Help :: string()}.
 
 -type fields_spec() :: [field_spec()] | {persistent_term, term()}.
 
 -type format_result() :: #{Name :: atom() =>
-                           #{type => counter | gauge,
+                           #{type => prometheus_type(),
                              help => string(),
                              values => #{labels() => number()}}}.
 
@@ -298,6 +302,8 @@ format_fields(Fields, CRef, Labels, Acc) ->
         fun ({Name, Index, Type, Help}, Acc0) ->
                 ComputedType = case Type of
                                     ratio -> gauge;
+                                    time_s -> gauge;
+                                    time_ms -> gauge;
                                     Other -> Other
                                 end,
                 InitialMetric = #{type => ComputedType,
@@ -306,8 +312,14 @@ format_fields(Fields, CRef, Labels, Acc) ->
                 MetricAcc = maps:get(Name, Acc0, InitialMetric),
                 ValuesAcc = maps:get(values, MetricAcc),
                 ComputedValue = case Type of
-                                    ratio -> counters:get(CRef, Index) / 100;
-                                    _ -> counters:get(CRef, Index)
+                                    ratio ->
+                                        counters:get(CRef, Index) / 100;
+                                    time_ms ->
+                                        counters:get(CRef, Index) / 1000; % ms to s
+                                    time_s ->
+                                        counters:get(CRef, Index) * 1.0; % ensure float
+                                    _ ->
+                                        counters:get(CRef, Index)
                                 end,
                 ValuesAcc1 = ValuesAcc#{Labels => ComputedValue},
                 MetricAcc1 = MetricAcc#{values => ValuesAcc1},
@@ -360,33 +372,49 @@ text_format_fields(Fields, CRef, Labels, PrefixBin, Acc) ->
     % a given metric, so we accumulate in a map, with the metric name as key
     lists:foldl(
         fun ({Name, Index, Type, Help}, Acc0) ->
-                ComputedType = case Type of
-                                    ratio -> gauge;
-                                    Other -> Other
-                                end,
-                ComputedUnit = case Type of
-                                    ratio -> <<"_ratio">>;
-                                    _ -> <<"">>
-                                end,
+                PromType = prometheus_type(Type),
+                Suffix = prometheus_suffix(Type),
                 ComputedValue = case Type of
-                                    ratio -> Ratio = counters:get(CRef, Index) / 100,
-                                    Ratio1= float_to_list(Ratio, [{decimals, 2}, compact]),
-                                    list_to_binary(Ratio1)
-                                    ;
-                                    _ -> integer_to_binary(counters:get(CRef, Index))
+                                    ratio ->
+                                        Value = counters:get(CRef, Index) / 100,
+                                        Formatted = float_to_list(Value, [{decimals, 2}, compact]),
+                                        list_to_binary(Formatted);
+                                    time_ms ->
+                                        Value = counters:get(CRef, Index) / 1000, % ms to s
+                                        Formatted = float_to_list(Value, [{decimals, 3}, compact]),
+                                        list_to_binary(Formatted);
+                                    time_s ->
+                                        Value = counters:get(CRef, Index) * 1.0, % ensure float
+                                        Formatted = float_to_list(Value, [{decimals, 1}, compact]),
+                                        list_to_binary(Formatted);
+                                    _ -> % counter or gauge
+                                        integer_to_binary(counters:get(CRef, Index))
                                 end,
-                                NameBin = <<PrefixBin/binary, (atom_to_binary(Name, utf8))/binary, ComputedUnit/binary>>,
+                NameBin = <<PrefixBin/binary, (atom_to_binary(Name, utf8))/binary, Suffix/binary>>,
                 Line = <<NameBin/binary, "{", LabelsBin/binary, "} ", ComputedValue/binary>>,
                 case maps:get(Name, Acc0, <<>>) of
                     <<>> ->
                         HelpLine = <<"# HELP ", NameBin/binary, <<" ">>/binary, (list_to_binary(Help))/binary>>,
-                        TypeBin = atom_to_binary(ComputedType, utf8),
+                        TypeBin = atom_to_binary(PromType, utf8),
                         TypeLine = <<"# TYPE ", NameBin/binary, <<" ">>/binary, TypeBin/binary>>,
                         Acc0#{Name => <<HelpLine/binary, <<"\n">>/binary, TypeLine/binary, <<"\n">>/binary, Line/binary>>};
                     Lines ->
                         Acc0#{Name => <<Lines/binary, <<"\n">>/binary, Line/binary>>}
                 end
         end, Acc, Fields).
+
+-spec prometheus_type(metric_type()) -> prometheus_type().
+prometheus_type(counter) -> counter;
+prometheus_type(gauge) -> gauge;
+prometheus_type(ratio) -> gauge;
+prometheus_type(time_s) -> gauge;
+prometheus_type(time_ms) -> gauge.
+
+-spec prometheus_suffix(metric_type()) -> binary().
+prometheus_suffix(ratio) -> <<"_ratio">>;
+prometheus_suffix(time_s) -> <<"_seconds">>;
+prometheus_suffix(time_ms) -> <<"_seconds">>;
+prometheus_suffix(_) -> <<"">>.
 
 label_value_to_binary(Value) when is_atom(Value) ->
     atom_to_binary(Value, utf8);

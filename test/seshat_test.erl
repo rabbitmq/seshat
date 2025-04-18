@@ -24,6 +24,7 @@ test_suite_test_() ->
        fun format_one/0,
        fun format_with_many_labels/0,
        fun format_ratio/0,
+       fun format_time_metrics/0,
        fun format_selected_metrics/0,
        fun text_format_selected_metrics/0,
        fun invalid_fields/0 ]}.
@@ -92,7 +93,7 @@ counters_with_persistent_term_field_spec() ->
     ok.
 
 format_group() ->
-    Group = widgets,
+    Group = ?FUNCTION_NAME,
     Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
     seshat:new(Group, widget1, Counters, #{component => widget1}),
@@ -107,7 +108,7 @@ format_group() ->
     ok.
 
 format_one() ->
-    Group = widgets,
+    Group = ?FUNCTION_NAME,
     Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
     seshat:new(Group, widget1, Counters, #{component => widget1}),
@@ -120,7 +121,7 @@ format_one() ->
     ok.
 
 format_with_many_labels() ->
-    Group = widgets,
+    Group = ?FUNCTION_NAME,
     Counters = [{reads, 1, counter, "Total reads"}],
     seshat:new_group(Group),
     seshat:new(Group, widget1, Counters, #{component => "widget1", status => up}),
@@ -136,7 +137,7 @@ format_with_many_labels() ->
     ok.
 
 format_selected_metrics() ->
-    Group = widgets,
+    Group = ?FUNCTION_NAME,
     Counters = [
                 {reads, 1, counter, "Total reads"},
                 {writes, 2, counter, "Total writes"},
@@ -168,7 +169,7 @@ invalid_fields() ->
     ok.
 
 format_ratio() ->
-    Group = widgets,
+    Group = ?FUNCTION_NAME,
     Counters = [{pings, 1, ratio, "Some ratio that happens to be 0%"},
                 {pongs, 2, ratio, "Some ratio that happens to be 17%"},
                 {pangs, 3, ratio, "Some ratio that happens to be 33%"},
@@ -197,13 +198,73 @@ format_ratio() ->
     ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
     ok.
 
+    format_time_metrics() ->
+        Group = ?FUNCTION_NAME,
+        Counters = [
+                    {job_duration, 2, time_s, "Job duration"},
+                    {short_latency, 3, time_ms, "Short latency"},
+                    {long_latency, 1, time_ms, "Request latency"}
+                   ],
+        seshat:new_group(Group),
+        Labels = #{component => test},
+        seshat:new(Group, test_component, Counters, Labels),
+
+        % Set values (1500 ms, 30 s, 5 ms)
+        set_value(Group, test_component, job_duration, 30),
+        set_value(Group, test_component, short_latency, 5),
+        set_value(Group, test_component, long_latency, 1500),
+
+        MapFormat = seshat:format(Group),
+        ExpectedMapFormat = #{
+            job_duration => #{type => gauge,
+                                help => "Job duration",
+                                values => #{Labels => 30.0}},
+            short_latency => #{type => gauge,
+                                help => "Short latency",
+                                values => #{Labels => 0.005}},
+            long_latency => #{type => gauge,
+                                    help => "Request latency",
+                                    values => #{Labels => 1.5}}
+        },
+        ?assertEqual(ExpectedMapFormat, MapFormat),
+
+        Prefix = "myapp",
+        MetricNames = [job_duration, short_latency, long_latency], % Added new metric name
+        ResultAsList = binary_to_list(seshat:text_format(Group, Prefix, MetricNames)),
+
+        % Expected format needs sorting because order isn't guaranteed
+        ExpectedLines = [
+            "# HELP myapp_job_duration_seconds Job duration",
+            "# TYPE myapp_job_duration_seconds gauge",
+            "myapp_job_duration_seconds{component=\"test\"} 30.0",
+            "# HELP myapp_short_latency_seconds Short latency",
+            "# TYPE myapp_short_latency_seconds gauge",
+            "myapp_short_latency_seconds{component=\"test\"} 0.005",
+            "# HELP myapp_long_latency_seconds Request latency",
+            "# TYPE myapp_long_latency_seconds gauge",
+            "myapp_long_latency_seconds{component=\"test\"} 1.5"
+        ],
+        ExpectedSortedText = lists:sort(ExpectedLines),
+
+        % Split and sort the actual result for comparison
+        ResultLines = string:split(ResultAsList, "\n", all),
+        FilteredResultLines = [Line || Line <- ResultLines, Line /= ""],
+        SortedResultText = lists:sort(FilteredResultLines),
+
+        ?assertEqual(ExpectedSortedText, SortedResultText),
+
+        ok.
+
 text_format_selected_metrics() ->
     Group = widgets,
     Counters = [
                 {reads, 1, counter, "Total reads"},
                 {writes, 2, counter, "Total writes"},
-                {cached, 3, ratio, "Ratio of things served from cache"}
-                ],
+                {cached, 3, ratio, "Ratio of things served from cache"},
+                {latency, 4, time_ms, "Latency"},
+                {duration, 5, time_s, "Duration"},
+                {npc, 6, gauge, "A metric we don't request in a call to text_format/3"}
+               ],
     seshat:new_group(Group),
     seshat:new(Group, thing1, Counters, #{component => "thing1", version => "1.2.3"}),
     seshat:new(Group, thing2, Counters, #{component => "thing2", some_atom => atom_value}),
@@ -211,13 +272,23 @@ text_format_selected_metrics() ->
     set_value(Group, thing1, reads, 1),
     set_value(Group, thing1, writes, 2),
     set_value(Group, thing1, cached, 10),
+    set_value(Group, thing1, latency, 5),
+    set_value(Group, thing1, duration, 123),
+    set_value(Group, thing1, npc, 1), % to be ignored
     set_value(Group, thing2, reads, 3),
     set_value(Group, thing2, writes, 4),
     set_value(Group, thing2, cached, 100),
+    set_value(Group, thing2, latency, 6),
+    set_value(Group, thing2, duration, 234),
+    set_value(Group, thing2, npc, 1), % to be ignored
     set_value(Group, thing3, reads, 1234),
     set_value(Group, thing3, writes, 4321),
     set_value(Group, thing3, cached, 17),
-    PrometheusFormat = binary_to_list(seshat:text_format(Group, "acme", [reads, writes, cached])),
+    set_value(Group, thing3, latency, 7),
+    set_value(Group, thing3, duration, 345),
+    set_value(Group, thing3, npc, 1), % to be ignored
+
+    ResultAsList = binary_to_list(seshat:text_format(Group, "acme", [reads, writes, cached, latency, duration])),
     ExpectedPrometheusFormat = "# HELP acme_reads Total reads\n"
     "# TYPE acme_reads counter\n"
     "acme_reads{version=\"1.2.3\",component=\"thing1\"} 1\n"
@@ -232,9 +303,19 @@ text_format_selected_metrics() ->
     "# TYPE acme_cached_ratio gauge\n"
     "acme_cached_ratio{version=\"1.2.3\",component=\"thing1\"} 0.1\n"
     "acme_cached_ratio{component=\"thing2\",some_atom=\"atom_value\"} 1.0\n"
-    "acme_cached_ratio{component=\"thing3\",some_binary=\"binary_value\"} 0.17\n",
+    "acme_cached_ratio{component=\"thing3\",some_binary=\"binary_value\"} 0.17\n"
+    "# HELP acme_latency_seconds Latency\n"
+    "# TYPE acme_latency_seconds gauge\n"
+    "acme_latency_seconds{version=\"1.2.3\",component=\"thing1\"} 0.005\n"
+    "acme_latency_seconds{component=\"thing2\",some_atom=\"atom_value\"} 0.006\n"
+    "acme_latency_seconds{component=\"thing3\",some_binary=\"binary_value\"} 0.007\n"
+    "# HELP acme_duration_seconds Duration\n"
+    "# TYPE acme_duration_seconds gauge\n"
+    "acme_duration_seconds{version=\"1.2.3\",component=\"thing1\"} 123.0\n"
+    "acme_duration_seconds{component=\"thing2\",some_atom=\"atom_value\"} 234.0\n"
+    "acme_duration_seconds{component=\"thing3\",some_binary=\"binary_value\"} 345.0\n",
 
-    ?assertEqual(ExpectedPrometheusFormat, PrometheusFormat),
+    ?assertEqual(ExpectedPrometheusFormat, ResultAsList),
     ok.
 
 %% test helpers
