@@ -20,7 +20,8 @@
          format/1,
          format/2,
          text_format/3,
-         format_one/2
+         format_one/2,
+         resolve_fields_spec/1
         ]).
 
 -type group() :: term().
