@@ -318,7 +318,12 @@ prom_format(Group, Prefix, Names) when is_list(Names) ->
 
 -spec do_prom_format(format_result(), string()) -> binary().
 do_prom_format(Data, Prefix) ->
-    PrefixBin = list_to_binary(Prefix ++ "_"),
+    PrefixBin = case unicode:characters_to_binary(Prefix ++ "_") of
+        P when is_tuple(P) ->
+            %% characters_to_binary errors are tuples
+            <<>>;
+        P -> P
+    end,
     Result = maps:fold(fun
             (Name, #{type := PromType, help := Help, values := Values}, Acc) ->
                 NameBin = <<PrefixBin/binary, Name/binary>>,
