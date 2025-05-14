@@ -7,6 +7,8 @@ define PROJECT_ENV
 ]
 endef
 
+dep_eunit_formatters = git https://github.com/seancribbs/eunit_formatters main
+
 LOCAL_DEPS = sasl crypto
 
 # TEST_DEPS=eunit_formatters
