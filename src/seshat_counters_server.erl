@@ -8,6 +8,8 @@
 
 -behaviour(gen_server).
 
+-include("src/seshat.hrl").
+
 %% API
 -export([start_link/0]).
 
@@ -58,9 +60,9 @@ handle_call({create_table, Group}, _From, #state{tables = Tables} = State) ->
             Ref = maps:get(Group, Tables),
             {reply, Ref, State};
         false ->
-            Ref = ets:new(anonymous, [set, public]),
+            Ref = ets:new(anonymous, [set, public, {keypos, #entry.id}]),
             persistent_term:put({?MODULE, Group}, Ref),
-            {reply, Ref, State#state{tables = maps:put(Group, Ref, Tables)}}
+            {reply, Ref, State#state{tables = Tables#{Group => Ref}}}
     end;
 handle_call({delete_table, Group}, _From, #state{tables = Tables} = State) ->
     %% TODO handle not_found

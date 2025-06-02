@@ -7,6 +7,8 @@
 
 -module(seshat).
 
+-include("src/seshat.hrl").
+
 -export([new_group/1,
          delete_group/1,
          new/3,
@@ -27,36 +29,7 @@
 -deprecated({overview, 1}).
 -deprecated({overview, 2}).
 
--type group() :: term().
--opaque group_ref() :: ets:tid().
--type id() :: term().
-
--type metric_unit() :: ratio | time_s | time_ms.
--type metric_type() :: counter | gauge | {counter | gauge, metric_unit()}.
-
--type prometheus_type() :: counter | gauge.
-
--type field_spec() :: {Name :: atom(), Index :: pos_integer(),
-                       Type :: metric_type(), Help :: string()}.
-
--type fields_spec() :: [field_spec()] | {persistent_term, term()}.
-
--type format_result() :: #{Name :: binary() =>
-                           #{type => prometheus_type(),
-                             help => string(),
-                             values => #{labels() => float()}}}.
-
--type label_name() :: atom().
--type label_value() :: atom() | unicode:chardata().
-
--type labels() :: #{label_name() => label_value()}.
-
--export_type([id/0,
-              group/0,
-              group_ref/0,
-              field_spec/0,
-              fields_spec/0,
-              labels/0]).
+-define(DEFAULT_FORMAT_OPTIONS, #{metrics => all, labels => as_map}).
 
 %% @doc Create a new empty group of metrics.
 %% Each group is completely isolated.
@@ -120,7 +93,7 @@ new(Group, Id, {persistent_term, PTerm} = FieldsSpec, Labels) ->
 fetch(Group, Id) ->
     TRef = seshat_counters_server:get_table(Group),
     try
-        ets:lookup_element(TRef, Id, 2)
+        ets:lookup_element(TRef, Id, #entry.cref)
     catch
         error:badarg ->
             undefined
@@ -167,7 +140,7 @@ build_counters_map(CRef, FieldSpec) ->
     #{id() => #{atom() => integer()}}.
 counters(Group) ->
     ets:foldl(
-        fun({Id, CRef, FieldSpec, _Labels}, Acc) ->
+        fun(#entry{id = Id, cref = CRef, field_spec = FieldSpec}, Acc) ->
                 CountersMap = build_counters_map(CRef, FieldSpec),
                 Acc#{Id => CountersMap}
         end, #{}, seshat_counters_server:get_table(Group)).
@@ -182,7 +155,7 @@ counters(Group) ->
     #{atom() => integer()} | undefined.
 counters(Group, Id) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Id) of
-        [{Id, CRef, FieldSpec, _Labels}] ->
+        [#entry{cref = CRef, field_spec = FieldSpec}] ->
             build_counters_map(CRef, FieldSpec);
         _ ->
             undefined
@@ -199,7 +172,7 @@ counters(Group, Id) ->
     #{atom() => integer()} | undefined.
 counters(Group, Id, Names) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Id) of
-        [{Id, CRef, FieldSpec, _Labels}] ->
+        [#entry{cref = CRef, field_spec = FieldSpec}] ->
             AllCountersMap = build_counters_map(CRef, FieldSpec),
             maps:with(Names, AllCountersMap);
         _ ->
@@ -208,39 +181,44 @@ counters(Group, Id, Names) ->
 
 %% @doc Return a map with all metrics for all objects in the group
 %% The returned map has the following structure:
-%% #{Name => #{Labels => Value}}
+%% #{Name => #{LabelMap => Value}}
 %% This structure is similar to what Prometheus expects,
 %% with label sets associated with metric values.
 %%
 %% @param Group the name of an existing group
 -spec format(group()) -> format_result().
 format(Group) ->
-    ets:foldl(fun
-                  ({_Name, _CRef, _FieldSpec, Labels}, Acc) when map_size(Labels) == 0 ->
-                      Acc;
-                  ({_Name, CRef, FieldsSpec, Labels}, Acc) ->
-                      Fields = resolve_fields_spec(FieldsSpec),
-                      format_fields(Fields, CRef, Labels, Acc)
-              end, #{}, seshat_counters_server:get_table(Group)).
+    format(Group, ?DEFAULT_FORMAT_OPTIONS).
 
-%% @doc Return a map with selected metrics for all objects
+%% @doc Return a map with all or selected metrics for all objects in the group
 %% The returned map has the following structure:
 %% #{Name => #{Labels => Value}}
-%% This structure is similar to what Prometheus expects,
-%% with label sets associated with metric values.
+%% Labels can be a map or as a binary (optimization).
 %%
 %% @param Group the name of an existing group
-%% @param Names the list of metrics to return
--spec format(group(), [atom()]) -> format_result().
-format(Group, Names) when is_list(Names) ->
+%% @param Options formatting options
+-spec format(group(), format_options()) -> format_result().
+format(Group, Options) ->
+    #{metrics := Metrics, labels := LabelFormat} = maps:merge(?DEFAULT_FORMAT_OPTIONS, Options),
     ets:foldl(fun
-                  ({_Name, _CRef, _FieldSpec, Labels}, Acc) when map_size(Labels) == 0 ->
+        (#entry{labels = Labels}, Acc) when map_size(Labels) == 0 ->
                       Acc;
-                  ({_Name, CRef, FieldSpec, Labels}, Acc) ->
+        (#entry{cref = CRef, field_spec = FieldSpec, labels = MapLabels, rendered_labels = BinaryLabels}, Acc) ->
                       Fields0 = resolve_fields_spec(FieldSpec),
-                      Fields = lists:filter(fun (F) -> lists:member(element(1, F), Names) end, Fields0),
+                      Fields = case Metrics of
+                                   all ->
+                                       Fields0;
+                                   Names when is_list(Names) ->
+                                       lists:filter(fun (F) -> lists:member(element(1, F), Names) end, Fields0)
+                               end,
+                      Labels = case LabelFormat of
+                                   as_map ->
+                                       MapLabels;
+                                   as_binary ->
+                                       BinaryLabels
+                               end,
                       format_fields(Fields, CRef, Labels, Acc)
-      end, #{}, seshat_counters_server:get_table(Group)).
+              end, #{}, seshat_counters_server:get_table(Group)).
 
 %% @doc Return the metadata for the fields
 %% When creating a set of metrics with seshat:new/3 or seshat:new/4,
@@ -257,9 +235,16 @@ resolve_fields_spec({persistent_term, PTerm}) ->
 
 -spec register_counter(group(), id(), counters:counters_ref(), fields_spec(), labels()) ->
     ok.
-register_counter(Group, Id, CRef, FieldSpec, Labels) ->
+register_counter(Group, Id, CRef, FieldSpec, Labels) when is_map(Labels) ->
     TRef = seshat_counters_server:get_table(Group),
-    true = ets:insert(TRef, {Id, CRef, FieldSpec, Labels}),
+    Entry = #entry{
+        id = Id,
+        cref = CRef,
+        field_spec = FieldSpec,
+        labels = Labels,
+        rendered_labels = labels_to_binary(Labels)
+    },
+    true = ets:insert(TRef, Entry),
     ok.
 
 -spec new_counter(group(), id(), [field_spec()], fields_spec(), labels()) ->
@@ -310,50 +295,43 @@ format_fields(Fields, CRef, Labels, Acc) ->
 %%
 -spec prom_format(group(), string()) -> binary().
 prom_format(Group, Prefix) ->
-    do_prom_format(format(Group), Prefix).
+    do_prom_format(format(Group, #{metrics => all, labels => as_binary}), Prefix).
 
 -spec prom_format(group(), string(), [atom()]) -> binary().
 prom_format(Group, Prefix, Names) when is_list(Names) ->
-    do_prom_format(format(Group, Names), Prefix).
+    do_prom_format(format(Group, #{metrics => Names, labels => as_binary}), Prefix).
 
 -spec do_prom_format(format_result(), string()) -> binary().
 do_prom_format(Data, Prefix) ->
     PrefixBin = case unicode:characters_to_binary(Prefix ++ "_") of
-        P when is_tuple(P) ->
-            %% characters_to_binary errors are tuples
-            <<>>;
-        P -> P
-    end,
-    Result = maps:fold(fun
-            (Name, #{type := PromType, help := Help, values := Values}, Acc) ->
-                NameBin = <<PrefixBin/binary, Name/binary>>,
-                HelpLine = <<"# HELP ", NameBin/binary, " ", (list_to_binary(Help))/binary>>,
-                TypeBin = atom_to_binary(PromType, utf8),
-                TypeLine = <<"# TYPE ", NameBin/binary, " ", TypeBin/binary>>,
+                    P when is_tuple(P) ->
+                        %% characters_to_binary errors are tuples
+                        <<>>;
+                    P -> P
+                end,
+    maps:fold(fun
+                  (Name0, #{type := PromType, help := Help, values := Values}, Acc) ->
+                      Name = <<PrefixBin/binary, Name0/binary>>,
+                      HelpLine = <<"# HELP ", Name/binary, " ", (list_to_binary(Help))/binary>>,
+                      TypeBin = atom_to_binary(PromType, utf8),
+                      TypeLine = <<"# TYPE ", Name/binary, " ", TypeBin/binary>>,
 
-                MetricSeries = maps:fold(fun
-                    (Labels, Value, SeriesAcc) ->
-                    LabelsBin0 = maps:fold(
-                        fun (K, V, LabelsAcc) ->
-                            LabelKey = atom_to_binary(K, utf8),
-                            LabelValue = label_value_to_binary(V),
-                            <<LabelsAcc/binary, LabelKey/binary, "=\"", LabelValue/binary, "\",">>
-                        end, <<"">>, Labels),
-                    LabelsBin = case LabelsBin0 of
-                        <<>> -> <<>>;
-                        _    ->
-                            Ls = binary:part(LabelsBin0, 0, byte_size(LabelsBin0) - 1),
-                            <<"{", Ls/binary, "} ">>
-                    end,
-                    FormattedValue = float_to_binary(Value, [{decimals, 3}, compact]),
-                    Line = <<NameBin/binary, LabelsBin/binary, FormattedValue/binary>>,
-                    <<SeriesAcc/binary, Line/binary, "\n">>
-            end, <<HelpLine/binary, "\n", TypeLine/binary, "\n">>, Values),
-            <<Acc/binary, MetricSeries/binary>>
-            end,
-        <<"">>,
-        Data),
-    Result.
+                      MetricSeries = fold_values(Name, HelpLine, TypeLine, Values),
+                      <<Acc/binary, MetricSeries/binary>>
+              end, <<"">>, Data).
+
+fold_values(Name, Help, Type, Values) when
+      is_binary(Name),
+      is_binary(Help),
+      is_binary(Type),
+      is_map(Values) ->
+    maps:fold(fun
+                  (Labels, Value, SeriesAcc) when is_binary(Labels) ->
+                      LabelsBin = <<"{", Labels/binary, "} ">>,
+                      FormattedValue = float_to_binary(Value, [{decimals, 3}, compact]),
+                      Line = <<Name/binary, LabelsBin/binary, FormattedValue/binary>>,
+                      <<SeriesAcc/binary, Line/binary, "\n">>
+              end, <<Help/binary, "\n", Type/binary, "\n">>, Values).
 
 -spec prometheus_type(metric_type()) -> prometheus_type().
 prometheus_type(counter) -> counter;
@@ -373,3 +351,16 @@ label_value_to_binary(Value) when is_list(Value) ->
     list_to_binary(Value);
 label_value_to_binary(Value) when is_binary(Value) ->
     Value.
+
+labels_to_binary(Labels) when is_map(Labels) ->
+    LabelsBin0 = maps:fold(
+                   fun (K, V, LabelsAcc) ->
+                           LabelKey = atom_to_binary(K, utf8),
+                           LabelValue = label_value_to_binary(V),
+                           <<LabelsAcc/binary, LabelKey/binary, "=\"", LabelValue/binary, "\",">>
+                   end, <<"">>, Labels),
+    case LabelsBin0 of
+        <<>> -> <<>>;
+        _    ->
+            binary:part(LabelsBin0, 0, byte_size(LabelsBin0) - 1)
+    end.

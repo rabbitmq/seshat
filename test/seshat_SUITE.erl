@@ -7,6 +7,7 @@
 
 -module(seshat_SUITE).
 -include_lib("eunit/include/eunit.hrl").
+-include("src/seshat.hrl").
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -118,7 +119,7 @@ format_selected_metrics(_Config) ->
                ],
     seshat:new(Group, thing1, Counters, #{component => "thing1"}),
     seshat:new(Group, thing2, Counters, #{component => "thing2"}),
-    Result = seshat:format(Group, [reads, writes]),
+    Result = seshat:format(Group, #{metrics => [reads, writes]}),
     ExpectedMap = #{<<"reads">> => #{type => counter,
                                help => "Total reads",
                                values => #{#{component => "thing1"} => 0.0,
@@ -285,7 +286,7 @@ prom_format_metrics(_Config) ->
 %% Helpers
 set_value(Group, Id, Name, Value) ->
     Table = seshat_counters_server:get_table(Group),
-    [{Id, CRef, FieldSpec, _Labels}] = ets:lookup(Table, Id),
+    [#entry{cref = CRef, field_spec = FieldSpec}] = ets:lookup(Table, Id),
     Fields = seshat:resolve_fields_spec(FieldSpec),
     {Name, Index, _Type, _Help} = lists:keyfind(Name, 1, Fields),
     ok = counters:put(CRef, Index, Value).
