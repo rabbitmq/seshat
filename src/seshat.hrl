@@ -20,7 +20,8 @@
 -type fields_spec() :: [field_spec()] | {persistent_term, term()}.
 
 -type format_options() :: #{metrics => all | [atom()],
-                            labels => as_map | as_binary}.
+                            labels => as_map | as_binary,
+                            filter_fun => function()}.
 
 -type format_result() :: #{Name :: binary() =>
                            #{type => prometheus_type(),

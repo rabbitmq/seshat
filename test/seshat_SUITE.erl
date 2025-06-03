@@ -20,6 +20,7 @@ all() ->
      format_ratio,
      format_time_metrics,
      format_selected_metrics,
+     format_with_a_filter,
      prom_format_metrics,
      invalid_fields].
 
@@ -128,6 +129,28 @@ format_selected_metrics(_Config) ->
                                 help => "Total writes",
                                 values => #{#{component => "thing1"} => 0.0,
                                             #{component => "thing2"} => 0.0}}},
+    ?assertEqual(ExpectedMap, Result),
+    ok.
+
+format_with_a_filter(_Config) ->
+    Group = ?FUNCTION_NAME,
+    Counters = [
+                {reads, 1, counter, "Total reads"},
+                {writes, 2, counter, "Total writes"},
+                {lookups, 3, counter, "Total lookups"}
+               ],
+    seshat:new(Group, thing1, Counters, #{component => "thing1"}),
+    seshat:new(Group, thing2, Counters, #{component => "thing2"}),
+    FilterFun = fun(#{component := "thing1"}) -> true;
+                   (_)                        -> false
+                end,
+    Result = seshat:format(Group, #{metrics => [reads, writes], filter_fun => FilterFun}),
+    ExpectedMap = #{<<"reads">> => #{type => counter,
+                                     help => "Total reads",
+                                     values => #{#{component => "thing1"} => 0.0}},
+                    <<"writes">> => #{type => counter,
+                                      help => "Total writes",
+                                      values => #{#{component => "thing1"} => 0.0}}},
     ?assertEqual(ExpectedMap, Result),
     ok.
 

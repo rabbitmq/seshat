@@ -29,7 +29,9 @@
 -deprecated({overview, 1}).
 -deprecated({overview, 2}).
 
--define(DEFAULT_FORMAT_OPTIONS, #{metrics => all, labels => as_map}).
+-define(DEFAULT_FORMAT_OPTIONS, #{metrics => all,
+                                  labels => as_map,
+                                  filter_fun => fun(_) -> true end}).
 
 %% @doc Create a new empty group of metrics.
 %% Each group is completely isolated.
@@ -199,25 +201,32 @@ format(Group) ->
 %% @param Options formatting options
 -spec format(group(), format_options()) -> format_result().
 format(Group, Options) ->
-    #{metrics := Metrics, labels := LabelFormat} = maps:merge(?DEFAULT_FORMAT_OPTIONS, Options),
+    #{metrics := Metrics,
+      labels := LabelFormat,
+      filter_fun := FilterFun} = maps:merge(?DEFAULT_FORMAT_OPTIONS, Options),
     ets:foldl(fun
         (#entry{labels = Labels}, Acc) when map_size(Labels) == 0 ->
                       Acc;
         (#entry{cref = CRef, field_spec = FieldSpec, labels = MapLabels, rendered_labels = BinaryLabels}, Acc) ->
-                      Fields0 = resolve_fields_spec(FieldSpec),
-                      Fields = case Metrics of
-                                   all ->
-                                       Fields0;
-                                   Names when is_list(Names) ->
-                                       lists:filter(fun (F) -> lists:member(element(1, F), Names) end, Fields0)
-                               end,
-                      Labels = case LabelFormat of
-                                   as_map ->
-                                       MapLabels;
-                                   as_binary ->
-                                       BinaryLabels
-                               end,
-                      format_fields(Fields, CRef, Labels, Acc)
+                      case FilterFun(MapLabels) of
+                          false ->
+                              Acc;
+                          true ->
+                              Fields0 = resolve_fields_spec(FieldSpec),
+                              Fields = case Metrics of
+                                           all ->
+                                               Fields0;
+                                           Names when is_list(Names) ->
+                                               lists:filter(fun (F) -> lists:member(element(1, F), Names) end, Fields0)
+                                       end,
+                              Labels = case LabelFormat of
+                                           as_map ->
+                                               MapLabels;
+                                           as_binary ->
+                                               BinaryLabels
+                                       end,
+                              format_fields(Fields, CRef, Labels, Acc)
+                      end
               end, #{}, seshat_counters_server:get_table(Group)).
 
 %% @doc Return the metadata for the fields
