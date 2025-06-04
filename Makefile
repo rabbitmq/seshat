@@ -2,6 +2,10 @@ PROJECT = seshat
 PROJECT_DESCRIPTION = Metrics library built for RabbitMQ, with a Prometheus exposition format built-in
 PROJECT_VERSION = 0.6.1
 
+dep_cth_styledout = git https://github.com/rabbitmq/cth_styledout.git master
+TEST_DEPS = cth_styledout
+CT_OPTS = -ct_hooks cth_styledout
+
 define PROJECT_ENV
 [
 ]
