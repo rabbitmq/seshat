@@ -55,25 +55,25 @@ delete_group(Group) ->
 %%
 %% @param Group the name of an existing group
 %% @param Id the id of an object these metrics are assosiated with
-%% @param FieldSpec metadata for the values stored in the counter
+%% @param FieldsSpec metadata for the values stored in the counter
 %% @returns a reference to the counter
 -spec new(group(), id(), fields_spec()) ->
     counters:counters_ref().
-new(Group, Id, FieldSpec)  ->
-    new(Group, Id, FieldSpec, #{}).
+new(Group, Id, FieldsSpec)  ->
+    new(Group, Id, FieldsSpec, #{}).
 
 %% @doc Create a new set of metrics.
 %% A set of metrics is stored in a counter (@see counters)
 %%
 %% @param Group the name of an existing group
 %% @param Id the id of an object these metrics are assosiated with
-%% @param FieldSpec metadata for the values stored in the counter
+%% @param FieldsSpec metadata for the values stored in the counter
 %% @param Labels key-value pairs describing the object
 %% @returns a reference to the counter
 -spec new(group(), id(), fields_spec(), labels()) ->
     counters:counters_ref().
-new(Group, Id, Fields = FieldSpec, Labels) when is_list(Fields) ->
-    new_counter(Group, Id, Fields, FieldSpec, Labels);
+new(Group, Id, Fields = FieldsSpec, Labels) when is_list(Fields) ->
+    new_counter(Group, Id, Fields, FieldsSpec, Labels);
 new(Group, Id, {persistent_term, PTerm} = FieldsSpec, Labels) ->
     case persistent_term:get(PTerm, undefined) of
         undefined ->
@@ -127,8 +127,8 @@ overview(Group, Id) ->
 %% Helper function to build the map of counters for a given CRef and FieldSpec
 -spec build_counters_map(counters:counters_ref(), fields_spec()) ->
     #{atom() => integer()}.
-build_counters_map(CRef, FieldSpec) ->
-    Fields = resolve_fields_spec(FieldSpec),
+build_counters_map(CRef, FieldsSpec) ->
+    Fields = resolve_fields_spec(FieldsSpec),
     lists:foldl(fun ({Name, Index, _Type, _Help}, Acc0) ->
                     Acc0#{Name => counters:get(CRef, Index)}
                 end, #{}, Fields).
@@ -142,10 +142,10 @@ build_counters_map(CRef, FieldSpec) ->
     #{id() => #{atom() => integer()}}.
 counters(Group) ->
     ets:foldl(
-        fun(#entry{id = Id, cref = CRef, field_spec = FieldSpec}, Acc) ->
-                CountersMap = build_counters_map(CRef, FieldSpec),
-                Acc#{Id => CountersMap}
-        end, #{}, seshat_counters_server:get_table(Group)).
+      fun(#entry{id = Id, cref = CRef, field_spec = FieldsSpec}, Acc) ->
+              CountersMap = build_counters_map(CRef, FieldsSpec),
+              Acc#{Id => CountersMap}
+      end, #{}, seshat_counters_server:get_table(Group)).
 
 %% @doc Return a map with all metrics for the object
 %% The returned map has the following structure:
@@ -157,8 +157,8 @@ counters(Group) ->
     #{atom() => integer()} | undefined.
 counters(Group, Id) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Id) of
-        [#entry{cref = CRef, field_spec = FieldSpec}] ->
-            build_counters_map(CRef, FieldSpec);
+        [#entry{cref = CRef, field_spec = FieldsSpec}] ->
+            build_counters_map(CRef, FieldsSpec);
         _ ->
             undefined
     end.
@@ -174,8 +174,8 @@ counters(Group, Id) ->
     #{atom() => integer()} | undefined.
 counters(Group, Id, Names) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Id) of
-        [#entry{cref = CRef, field_spec = FieldSpec}] ->
-            AllCountersMap = build_counters_map(CRef, FieldSpec),
+        [#entry{cref = CRef, field_spec = FieldsSpec}] ->
+            AllCountersMap = build_counters_map(CRef, FieldsSpec),
             maps:with(Names, AllCountersMap);
         _ ->
             undefined
@@ -205,71 +205,34 @@ format(Group, Options) ->
       labels := LabelFormat,
       filter_fun := FilterFun} = maps:merge(?DEFAULT_FORMAT_OPTIONS, Options),
     ets:foldl(fun
-        (#entry{labels = Labels}, Acc) when map_size(Labels) == 0 ->
-                      Acc;
-        (#entry{cref = CRef, field_spec = FieldSpec, labels = MapLabels, rendered_labels = BinaryLabels}, Acc) ->
-                      case FilterFun(MapLabels) of
-                          false ->
-                              Acc;
+                  (#entry{cref = CRef,
+                          field_spec = FieldsSpec,
+                          labels = LabelsAsMap,
+                          rendered_labels = LabelsAsBinary}, Acc) ->
+                      case map_size(LabelsAsMap) > 0 andalso FilterFun(LabelsAsMap) of
                           true ->
-                              Fields0 = resolve_fields_spec(FieldSpec),
+                              Fields0 = resolve_fields_spec(FieldsSpec),
                               Fields = case Metrics of
                                            all ->
                                                Fields0;
                                            Names when is_list(Names) ->
-                                               lists:filter(fun (F) -> lists:member(element(1, F), Names) end, Fields0)
+                                               lists:filter(fun (F) ->
+                                                              lists:member(
+                                                                element(1, F), Names)
+                                                            end, Fields0)
                                        end,
                               Labels = case LabelFormat of
                                            as_map ->
-                                               MapLabels;
+                                               LabelsAsMap;
                                            as_binary ->
-                                               BinaryLabels
+                                               LabelsAsBinary
                                        end,
-                              format_fields(Fields, CRef, Labels, Acc)
+                              format_fields(Fields, CRef, Labels, Acc);
+                          false ->
+                              %% skip filtered-out and unlabeled entries
+                              Acc
                       end
               end, #{}, seshat_counters_server:get_table(Group)).
-
-%% @doc Return the metadata for the fields
-%% When creating a set of metrics with seshat:new/3 or seshat:new/4,
-%% metadata about the metrics/counters has to be provided either
-%% as a list or as a reference to a persistent term with the list.
-%% The latter is recommended when a lot of similar metrics need to be stored
-%% (eg. many instances of the same component emit the same set of metrics)
--spec resolve_fields_spec(fields_spec()) -> [field_spec()].
-resolve_fields_spec(Fields = FieldSpec) when is_list(FieldSpec) ->
-    Fields;
-resolve_fields_spec({persistent_term, PTerm}) ->
-    %% TODO error handling
-    persistent_term:get(PTerm).
-
--spec register_counter(group(), id(), counters:counters_ref(), fields_spec(), labels()) ->
-    ok.
-register_counter(Group, Id, CRef, FieldSpec, Labels) when is_map(Labels) ->
-    TRef = seshat_counters_server:get_table(Group),
-    Entry = #entry{
-        id = Id,
-        cref = CRef,
-        field_spec = FieldSpec,
-        labels = Labels,
-        rendered_labels = labels_to_binary(Labels)
-    },
-    true = ets:insert(TRef, Entry),
-    ok.
-
--spec new_counter(group(), id(), [field_spec()], fields_spec(), labels()) ->
-    counters:counters_ref().
-new_counter(Group, Id, Fields, FieldsSpec, Labels) ->
-    Size = length(Fields),
-    ExpectedIndexes = lists:seq(1, Size),
-    Indexes = lists:sort([P || {_, P, _, _} <- Fields]),
-    case ExpectedIndexes == Indexes of
-        true ->
-            CRef = counters:new(Size, [write_concurrency]),
-            ok = register_counter(Group, Id, CRef, FieldsSpec, Labels),
-            CRef;
-        false ->
-            error(invalid_field_specification)
-    end.
 
 format_fields(Fields, CRef, Labels, Acc) ->
     lists:foldl(
@@ -293,6 +256,48 @@ format_fields(Fields, CRef, Labels, Acc) ->
                 MetricAcc1 = MetricAcc#{values => ValuesAcc1},
                 Acc0#{Name => MetricAcc1}
         end, Acc, Fields).
+
+%% @doc Return the metadata for the fields
+%% When creating a set of metrics with seshat:new/3 or seshat:new/4,
+%% metadata about the metrics/counters has to be provided either
+%% as a list or as a reference to a persistent term with the list.
+%% The latter is recommended when a lot of similar metrics need to be stored
+%% (eg. many instances of the same component emit the same set of metrics)
+-spec resolve_fields_spec(fields_spec()) -> [field_spec()].
+resolve_fields_spec(Fields = FieldsSpec) when is_list(FieldsSpec) ->
+    Fields;
+resolve_fields_spec({persistent_term, PTerm}) ->
+    %% TODO error handling
+    persistent_term:get(PTerm).
+
+-spec register_counter(group(), id(), counters:counters_ref(), fields_spec(), labels()) ->
+    ok.
+register_counter(Group, Id, CRef, FieldsSpec, Labels) when is_map(Labels) ->
+    TRef = seshat_counters_server:get_table(Group),
+    Entry = #entry{
+        id = Id,
+        cref = CRef,
+        field_spec = FieldsSpec,
+        labels = Labels,
+        rendered_labels = labels_to_binary(Labels)
+    },
+    true = ets:insert(TRef, Entry),
+    ok.
+
+-spec new_counter(group(), id(), [field_spec()], fields_spec(), labels()) ->
+    counters:counters_ref().
+new_counter(Group, Id, Fields, FieldsSpec, Labels) ->
+    Size = length(Fields),
+    ExpectedIndexes = lists:seq(1, Size),
+    Indexes = lists:sort([P || {_, P, _, _} <- Fields]),
+    case ExpectedIndexes == Indexes of
+        true ->
+            CRef = counters:new(Size, [write_concurrency]),
+            ok = register_counter(Group, Id, CRef, FieldsSpec, Labels),
+            CRef;
+        false ->
+            error(invalid_field_specification)
+    end.
 
 %% @doc Return a Prometheus-formated text (as a binary),
 %% which can be directly returned by a Prometheus endpoint.
