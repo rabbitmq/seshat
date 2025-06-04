@@ -6,7 +6,8 @@
 %%
 
 -module(seshat_SUITE).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("stdlib/include/assert.hrl").
 -include("src/seshat.hrl").
 
 -compile(nowarn_export_all).
@@ -25,6 +26,7 @@ all() ->
      invalid_fields].
 
 init_per_suite(Config) ->
+    logger:remove_handler(default),
     {ok, _} = application:ensure_all_started(seshat),
     Config.
 
