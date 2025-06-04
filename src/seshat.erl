@@ -16,6 +16,7 @@
          fetch/2,
          overview/1,
          overview/2,
+         counters/1,
          counters/2,
          counters/3,
          delete/2,
