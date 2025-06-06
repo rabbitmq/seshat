@@ -34,18 +34,19 @@
 -type labels_map() :: #{label_name() => label_value()}.
 -type labels() :: labels_map() | binary().
 
--export_type([id/0,
+-export_type([
+              id/0,
               group/0,
               group_ref/0,
               field_spec/0,
               fields_spec/0,
               labels/0,
-              labels_map/0]).
+              labels_map/0
+             ]).
 
--record(entry, {
-          id :: term(),
-          cref :: counters:counters_ref(),
-          field_spec :: fields_spec(),
-          labels :: labels_map(),
-          rendered_labels :: binary()
-         }).
+-record(entry,
+        {id :: term(),
+         cref :: counters:counters_ref(),
+         field_spec :: fields_spec(),
+         labels :: labels_map(),
+         rendered_labels :: binary()}).

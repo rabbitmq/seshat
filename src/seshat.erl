@@ -237,26 +237,26 @@ format(Group, Options) ->
 
 format_fields(Fields, CRef, Labels, Acc) ->
     lists:foldl(
-        fun ({Name0, Index, Type, Help}, Acc0) ->
-                PromType = prometheus_type(Type),
-                Name = with_prometheus_suffix(atom_to_binary(Name0), Type),
-                InitialMetric = #{type => PromType,
-                                    help => Help,
-                                    values => #{}},
-                MetricAcc = maps:get(Name, Acc0, InitialMetric),
-                ValuesAcc = maps:get(values, MetricAcc),
-                ComputedValue = case Type of
-                                    {_, ratio} ->
-                                        counters:get(CRef, Index) / 100;
-                                    {_, time_ms} ->
-                                        counters:get(CRef, Index) / 1000; % ms to s
-                                    _ ->
-                                        counters:get(CRef, Index) * 1.0 % ensure float
-                                end,
-                ValuesAcc1 = ValuesAcc#{Labels => ComputedValue},
-                MetricAcc1 = MetricAcc#{values => ValuesAcc1},
-                Acc0#{Name => MetricAcc1}
-        end, Acc, Fields).
+      fun ({Name0, Index, Type, Help}, Acc0) ->
+              PromType = prometheus_type(Type),
+              Name = with_prometheus_suffix(atom_to_binary(Name0), Type),
+              InitialMetric = #{type => PromType,
+                                help => Help,
+                                values => #{}},
+              MetricAcc = maps:get(Name, Acc0, InitialMetric),
+              ValuesAcc = maps:get(values, MetricAcc),
+              ComputedValue = case Type of
+                                  {_, ratio} ->
+                                      counters:get(CRef, Index) / 100;
+                                  {_, time_ms} ->
+                                      counters:get(CRef, Index) / 1000; % ms to s
+                                  _ ->
+                                      counters:get(CRef, Index) * 1.0 % ensure float
+                              end,
+              ValuesAcc1 = ValuesAcc#{Labels => ComputedValue},
+              MetricAcc1 = MetricAcc#{values => ValuesAcc1},
+              Acc0#{Name => MetricAcc1}
+      end, Acc, Fields).
 
 %% @doc Return the metadata for the fields
 %% When creating a set of metrics with seshat:new/3 or seshat:new/4,
@@ -275,13 +275,12 @@ resolve_fields_spec({persistent_term, PTerm}) ->
     ok.
 register_counter(Group, Id, CRef, FieldsSpec, Labels) when is_map(Labels) ->
     TRef = seshat_counters_server:get_table(Group),
-    Entry = #entry{
-        id = Id,
-        cref = CRef,
-        field_spec = FieldsSpec,
-        labels = Labels,
-        rendered_labels = labels_to_binary(Labels)
-    },
+    Entry = #entry{id = Id,
+                   cref = CRef,
+                   field_spec = FieldsSpec,
+                   labels = Labels,
+                   rendered_labels = labels_to_binary(Labels)
+                  },
     true = ets:insert(TRef, Entry),
     ok.
 
@@ -335,11 +334,11 @@ do_prom_format(Data, Prefix) ->
                       <<Acc/binary, MetricSeries/binary>>
               end, <<"">>, Data).
 
-fold_values(Name, Help, Type, Values) when
-      is_binary(Name),
-      is_binary(Help),
-      is_binary(Type),
-      is_map(Values) ->
+fold_values(Name, Help, Type, Values)
+  when is_binary(Name)
+       andalso is_binary(Help)
+       andalso is_binary(Type)
+       andalso is_map(Values) ->
     maps:fold(fun
                   (Labels, Value, SeriesAcc) when is_binary(Labels) ->
                       LabelsBin = <<"{", Labels/binary, "} ">>,
@@ -376,6 +375,6 @@ labels_to_binary(Labels) when is_map(Labels) ->
                    end, <<"">>, Labels),
     case LabelsBin0 of
         <<>> -> <<>>;
-        _    ->
+        _ ->
             binary:part(LabelsBin0, 0, byte_size(LabelsBin0) - 1)
     end.
