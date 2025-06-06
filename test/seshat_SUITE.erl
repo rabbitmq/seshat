@@ -14,7 +14,7 @@
 -compile(export_all).
 
 all() ->
-    [overview,
+    [counters,
      counters_with_persistent_term_field_spec,
      format_group,
      format_with_many_labels,
@@ -44,7 +44,7 @@ end_per_testcase(TestCaseName, _Config) ->
     ok.
 
 %% Test cases
-overview(_Config) ->
+counters(_Config) ->
     Group = ?FUNCTION_NAME,
     Counters = [
                 {carrots_eaten_total, 1, counter, "Total number of carrots eaten on a meal"},
@@ -53,12 +53,12 @@ overview(_Config) ->
     seshat:new(Group, "rabbit", Counters),
     set_value(Group, "rabbit", carrots_eaten_total, 3),
     set_value(Group, "rabbit", holes_dug_total, 1),
-    Overview = seshat:overview(Group),
+    Overview = seshat:counters(Group),
     ?assertEqual(
        #{"rabbit" => #{carrots_eaten_total => 3, holes_dug_total => 1}},
        Overview),
     ?assertMatch(#{carrots_eaten_total := 3, holes_dug_total := 1},
-                 seshat:overview(Group, "rabbit")),
+                 seshat:counters(Group, "rabbit")),
     ?assertMatch(#{holes_dug_total := 1},
                  seshat:counters(Group, "rabbit", [holes_dug_total])),
     ok.
@@ -73,12 +73,12 @@ counters_with_persistent_term_field_spec(_Config) ->
     seshat:new(Group, "rabbit", {persistent_term, pets_field_spec}),
     set_value(Group, "rabbit", carrots_eaten_total, 3),
     set_value(Group, "rabbit", holes_dug_total, 1),
-    Overview = seshat:overview(Group),
+    Overview = seshat:counters(Group),
     ?assertEqual(
        #{"rabbit" => #{carrots_eaten_total => 3, holes_dug_total => 1}},
        Overview),
     ?assertMatch(#{carrots_eaten_total := 3, holes_dug_total := 1},
-                 seshat:overview(Group, "rabbit")),
+                 seshat:counters(Group, "rabbit")),
     ?assertMatch(#{holes_dug_total := 1},
                  seshat:counters(Group, "rabbit", [holes_dug_total])),
     persistent_term:erase(pets_field_spec),

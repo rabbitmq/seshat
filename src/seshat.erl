@@ -14,8 +14,6 @@
          new/3,
          new/4,
          fetch/2,
-         overview/1,
-         overview/2,
          counters/1,
          counters/2,
          counters/3,
@@ -26,9 +24,6 @@
          prom_format/3,
          resolve_fields_spec/1
         ]).
-
--deprecated({overview, 1}).
--deprecated({overview, 2}).
 
 -define(DEFAULT_FORMAT_OPTIONS, #{metrics => all,
                                   labels => as_map,
@@ -112,18 +107,6 @@ delete(Group, Id) ->
     TRef = seshat_counters_server:get_table(Group),
     true = ets:delete(TRef, Id),
     ok.
-
-%% Use counters/1 instead
--spec overview(group()) ->
-    #{id() => #{atom() => integer()}}.
-overview(Group) ->
-    counters(Group).
-
-%% Use counters/2 instead
--spec overview(group(), id()) ->
-    #{atom() => integer()} | undefined.
-overview(Group, Id) ->
-    counters(Group, Id).
 
 %% Helper function to build the map of counters for a given CRef and FieldSpec
 -spec build_counters_map(counters:counters_ref(), fields_spec()) ->

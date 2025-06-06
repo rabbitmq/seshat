@@ -46,9 +46,9 @@ counters:add(CountersRef, ?C_CARROTS_EATEN, 3),
 ```
 To inspect the counters on the system for a given group do:
 ```erlang
-Overview = seshat:overview(pets),
+Counters = seshat:counters(pets),
 ```
-Overview is a map of `#{Name => #{FieldName, Count}}`. E.g. for the above
+Counters is a map of `#{Name => #{FieldName, Count}}`. E.g. for the above
 it would look like:
 ```erlang 
 #{rabbit => #{carrots_eaten_total => 3, holes_dug_total => 0}}
@@ -66,12 +66,12 @@ There is also `seshat:format(Groups)` which for the above case will return:
       values => #{rabbit => 0}}}
 ```
 
-
 This format uses the counter `Name` as a unique value label for the metrics.
 This formatting is more suitable for e.g. prometheus export. The counter name
 doesn't have to be an atom. It can also be a list of two-tuples or
 a pre-formatted binary.
 
+`seshat:format/2` allows additional formatting options.
 
 ## Copyright and License
 
