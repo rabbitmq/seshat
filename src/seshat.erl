@@ -325,7 +325,7 @@ fold_values(Name, Help, Type, Values)
                                (Labels, Value, Acc) when is_binary(Labels) ->
                                    FormattedValue = float_to_binary(Value, [{decimals, 3}, compact]),
                                    Line = [Name, "{", Labels, "} ", FormattedValue, "\n"],
-                                   [Acc, Line]
+                                   [Line, Acc]
                            end, [], Values),
     [Header, ValueLines].
 
