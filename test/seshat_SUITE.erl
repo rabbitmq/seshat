@@ -212,7 +212,7 @@ format_time_metrics(_Config) ->
     ?assertEqual(ExpectedMap, MapResult),
     Prefix = "myapp",
     MetricNames = [job_duration, short_latency, long_latency],
-    TextResult = seshat:prom_format(Group, Prefix, MetricNames),
+    TextResult = iolist_to_binary(seshat:prom_format(Group, Prefix, MetricNames)),
     ExpectedLines = [
         "# HELP myapp_job_duration_seconds Job duration",
         "# TYPE myapp_job_duration_seconds counter",
@@ -261,7 +261,7 @@ prom_format_metrics(_Config) ->
     set_value(Group, thing3, duration, 345),
     set_value(Group, thing3, npc, 1),  % to be ignored by prom_format/3
 
-    FilteredResult = seshat:prom_format(Group, "acme", [reads, writes, cached, latency, duration]),
+    FilteredResult = iolist_to_binary(seshat:prom_format(Group, "acme", [reads, writes, cached, latency, duration])),
     ExpectedFilteredLines = [
         "# HELP acme_reads Total reads",
         "# TYPE acme_reads counter",
@@ -294,7 +294,7 @@ prom_format_metrics(_Config) ->
     assertEqualIgnoringOrder(ExpectedFilteredResult, FilteredResult),
 
     %% make sure that `npc` metric is returned by prom_format/2
-    UnfilteredResult = seshat:prom_format(Group, "acme"),
+    UnfilteredResult = iolist_to_binary(seshat:prom_format(Group, "acme")),
     ExpectedUnfilteredLines = ExpectedFilteredLines ++ [
         "# HELP acme_npc A metric we don't request in a call to prom_format/3",
         "# TYPE acme_npc gauge",

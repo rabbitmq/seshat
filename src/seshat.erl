@@ -282,23 +282,23 @@ new_counter(Group, Id, Fields, FieldsSpec, Labels) ->
             error(invalid_field_specification)
     end.
 
-%% @doc Return a Prometheus-formated text (as a binary),
+%% @doc Return a Prometheus-formated text as iodata,
 %% which can be directly returned by a Prometheus endpoint.
-%% The returned binary has the following structure:
+%% The returned iodata has the following structure:
 %% prefix_name{label1="value1",...} Value
 %%
 %% @param Group the name of an existing group
 %% @param Names the list of metrics to return
 %%
--spec prom_format(group(), string()) -> binary().
+-spec prom_format(group(), string()) -> iodata().
 prom_format(Group, Prefix) ->
     do_prom_format(format(Group, #{metrics => all, labels => as_binary}), Prefix).
 
--spec prom_format(group(), string(), [atom()]) -> binary().
+-spec prom_format(group(), string(), [atom()]) -> iodata().
 prom_format(Group, Prefix, Names) when is_list(Names) ->
     do_prom_format(format(Group, #{metrics => Names, labels => as_binary}), Prefix).
 
--spec do_prom_format(format_result(), string()) -> binary().
+-spec do_prom_format(format_result(), string()) -> iodata().
 do_prom_format(Data, Prefix) ->
     PrefixBin = case unicode:characters_to_binary(Prefix ++ "_") of
                     P when is_tuple(P) ->
@@ -309,26 +309,25 @@ do_prom_format(Data, Prefix) ->
     maps:fold(fun
                   (Name0, #{type := PromType, help := Help, values := Values}, Acc) ->
                       Name = <<PrefixBin/binary, Name0/binary>>,
-                      HelpLine = <<"# HELP ", Name/binary, " ", (list_to_binary(Help))/binary>>,
+                      HelpLine = ["# HELP ", Name, " ", Help],
                       TypeBin = atom_to_binary(PromType, utf8),
-                      TypeLine = <<"# TYPE ", Name/binary, " ", TypeBin/binary>>,
+                      TypeLine = ["# TYPE ", Name, " ", TypeBin],
 
                       MetricSeries = fold_values(Name, HelpLine, TypeLine, Values),
-                      <<Acc/binary, MetricSeries/binary>>
-              end, <<"">>, Data).
+                      [Acc, MetricSeries]
+              end, [], Data).
 
 fold_values(Name, Help, Type, Values)
   when is_binary(Name)
-       andalso is_binary(Help)
-       andalso is_binary(Type)
        andalso is_map(Values) ->
-    maps:fold(fun
-                  (Labels, Value, SeriesAcc) when is_binary(Labels) ->
-                      LabelsBin = <<"{", Labels/binary, "} ">>,
-                      FormattedValue = float_to_binary(Value, [{decimals, 3}, compact]),
-                      Line = <<Name/binary, LabelsBin/binary, FormattedValue/binary>>,
-                      <<SeriesAcc/binary, Line/binary, "\n">>
-              end, <<Help/binary, "\n", Type/binary, "\n">>, Values).
+    Header = [Help, "\n", Type, "\n"],
+    ValueLines = maps:fold(fun
+                               (Labels, Value, Acc) when is_binary(Labels) ->
+                                   FormattedValue = float_to_binary(Value, [{decimals, 3}, compact]),
+                                   Line = [Name, "{", Labels, "} ", FormattedValue, "\n"],
+                                   [Acc, Line]
+                           end, [], Values),
+    [Header, ValueLines].
 
 -spec prometheus_type(metric_type()) -> prometheus_type().
 prometheus_type(counter) -> counter;
