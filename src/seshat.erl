@@ -2,175 +2,361 @@
 %% License, v. 2.0. If a copy of the MPL was not distributed with this
 %% file, You can obtain one at https://mozilla.org/MPL/2.0/.
 %%
-%% Copyright (c) 2007-2023 Broadcom. All Rights Reserved. The term Broadcom refers to Broadcom Inc. and/or its subsidiaries.
+%% Copyright (c) 2007-2025 Broadcom. All Rights Reserved. The term Broadcom refers to Broadcom Inc. and/or its subsidiaries.
 %%
 
 -module(seshat).
 
+-include("src/seshat.hrl").
+
 -export([new_group/1,
          delete_group/1,
          new/3,
+         new/4,
          fetch/2,
-         overview/1,
-         overview/2,
+         counters/1,
          counters/2,
          counters/3,
          delete/2,
-         format/1
+         format/1,
+         format/2,
+         prom_format/2,
+         prom_format/3,
+         resolve_fields_spec/1
         ]).
 
--type group() :: term().
--opaque group_ref() :: ets:tid().
--type name() :: term().
+-define(DEFAULT_FORMAT_OPTIONS, #{metrics => all,
+                                  labels => as_map,
+                                  filter_fun => fun(_) -> true end}).
 
--type field_spec() :: {Name :: atom(), Position :: pos_integer(),
-                       Type :: counter | gauge, Description :: string()}.
-
--type fields_spec() :: [field_spec()] | {persistent_term, term()}.
-
--type format_result() :: #{FieldName :: atom() =>
-                           #{type => counter | gauge,
-                             help => string(),
-                             values => #{name() => integer()}}}.
-
--export_type([name/0,
-              group/0,
-              group_ref/0,
-              field_spec/0,
-              fields_spec/0]).
-
+%% @doc Create a new empty group of metrics.
+%% Each group is completely isolated.
+%%
+%% @param Group the name of the group
+%% @returns a reference to the new group
 -spec new_group(group()) -> group_ref().
 new_group(Group) ->
     seshat_counters_server:create_table(Group).
 
+%% @doc Delete an existing group.
+%%
+%% @param Group the name of the group
+%% @returns 'ok'
 -spec delete_group(group()) -> ok.
 delete_group(Group) ->
     seshat_counters_server:delete_table(Group).
 
--spec new(group(), name(), fields_spec()) ->
+%% @doc Create a new set of metrics.
+%% A set of metrics is stored in a counter (@see counters)
+%%
+%% @param Group the name of an existing group
+%% @param Id the id of an object these metrics are assosiated with
+%% @param FieldsSpec metadata for the values stored in the counter
+%% @returns a reference to the counter
+-spec new(group(), id(), fields_spec()) ->
     counters:counters_ref().
-new(Group, Name, Fields) when is_list(Fields) ->
-    new_counter(Group, Name, Fields, Fields);
-new(Group, Name, {persistent_term, PTerm} = FieldsSpec) ->
+new(Group, Id, FieldsSpec)  ->
+    new(Group, Id, FieldsSpec, #{}).
+
+%% @doc Create a new set of metrics.
+%% A set of metrics is stored in a counter (@see counters)
+%%
+%% @param Group the name of an existing group
+%% @param Id the id of an object these metrics are assosiated with
+%% @param FieldsSpec metadata for the values stored in the counter
+%% @param Labels key-value pairs describing the object
+%% @returns a reference to the counter
+-spec new(group(), id(), fields_spec(), labels()) ->
+    counters:counters_ref().
+new(Group, Id, Fields = FieldsSpec, Labels) when is_list(Fields) ->
+    new_counter(Group, Id, Fields, FieldsSpec, Labels);
+new(Group, Id, {persistent_term, PTerm} = FieldsSpec, Labels) ->
     case persistent_term:get(PTerm, undefined) of
         undefined ->
             error({non_existent_fields_spec, FieldsSpec});
         Fields ->
-            new_counter(Group, Name, Fields, FieldsSpec)
+            new_counter(Group, Id, Fields, FieldsSpec, Labels)
     end.
 
+%% @doc Return a reference to an existing set of metrics.
 %% fetch/2 is NOT meant to be called for every counter update.
-%% Instead, for higher performance, the consuming application should store the returned counters_ref
-%% in a stateful Erlang module or in persistent_term (see persistent:term_put/2).
--spec fetch(group(), name()) -> undefined | counters:counters_ref().
-fetch(Group, Name) ->
+%% Instead, for higher performance, the consuming application should
+%% store the returned counters_ref in a stateful Erlang module or in
+%% persistent_term (@see persistent:term_put/2).
+%%
+%% @param Group the name of an existing group
+%% @param Id the id of an existing object
+%% @returns a reference to the counter
+-spec fetch(group(), id()) -> undefined | counters:counters_ref().
+fetch(Group, Id) ->
     TRef = seshat_counters_server:get_table(Group),
     try
-        ets:lookup_element(TRef, Name, 2)
+        ets:lookup_element(TRef, Id, #entry.cref)
     catch
         error:badarg ->
             undefined
     end.
 
--spec delete(group(), name()) -> ok.
-delete(Group, Name) ->
+%% @doc Delete a metric set
+%%
+%% @param Group the name of an existing group
+%% @param Id the id of an existing object
+%% @returns 'ok'
+-spec delete(group(), id()) -> ok.
+delete(Group, Id) ->
     TRef = seshat_counters_server:get_table(Group),
-    true = ets:delete(TRef, Name),
+    true = ets:delete(TRef, Id),
     ok.
 
-%%% Use counters/2
--spec overview(group()) ->
-    #{name() => #{atom() => integer()}}.
-overview(Group) ->
+%% Helper function to build the map of counters for a given CRef and FieldSpec
+-spec build_counters_map(counters:counters_ref(), fields_spec()) ->
+    #{atom() => integer()}.
+build_counters_map(CRef, FieldsSpec) ->
+    Fields = resolve_fields_spec(FieldsSpec),
+    lists:foldl(fun ({Name, Index, _Type, _Help}, Acc0) ->
+                    Acc0#{Name => counters:get(CRef, Index)}
+                end, #{}, Fields).
+
+%% @doc Return a map with all metrics of all objects in the group
+%% The returned map has the following structure:
+%% #{Id => #{Name => Value}}
+%%
+%% @param Group the name of an existing group
+-spec counters(group()) ->
+    #{id() => #{atom() => integer()}}.
+counters(Group) ->
     ets:foldl(
-      fun({Name, Ref, Fields0}, Acc) ->
-              Fields = resolve_fields(Fields0),
-              Counters = lists:foldl(
-                           fun ({Key, Index, _Type, _Description}, Acc0) ->
-                                   Acc0#{Key => counters:get(Ref, Index)}
-                           end, #{}, Fields),
-              Acc#{Name => Counters}
+      fun(#entry{id = Id, cref = CRef, field_spec = FieldsSpec}, Acc) ->
+              CountersMap = build_counters_map(CRef, FieldsSpec),
+              Acc#{Id => CountersMap}
       end, #{}, seshat_counters_server:get_table(Group)).
 
--spec overview(group(), name()) ->
+%% @doc Return a map with all metrics for the object
+%% The returned map has the following structure:
+%% #{Name => Value}
+%%
+%% @param Group the name of an existing group
+%% @param Id the name of an existing object
+-spec counters(group(), id()) ->
     #{atom() => integer()} | undefined.
-overview(Group, Name) ->
-    counters(Group, Name).
-
--spec counters(group(), name()) ->
-    #{atom() => integer()} | undefined.
-counters(Group, Name) ->
-    case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields0}] ->
-            Fields = resolve_fields(Fields0),
-            lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
-                                Acc0#{Key => counters:get(Ref, Index)}
-                        end, #{}, Fields);
+counters(Group, Id) ->
+    case ets:lookup(seshat_counters_server:get_table(Group), Id) of
+        [#entry{cref = CRef, field_spec = FieldsSpec}] ->
+            build_counters_map(CRef, FieldsSpec);
         _ ->
             undefined
     end.
 
--spec counters(group(), name(), [atom()]) ->
+%% @doc Return a map with selected metrics for the object
+%% The returned map has the following structure:
+%% #{Name => Value}
+%%
+%% @param Group the name of an existing group
+%% @param Id the name of an existing object
+%% @param Names the list of metrics to return
+-spec counters(group(), id(), [atom()]) ->
     #{atom() => integer()} | undefined.
-counters(Group, Name, FieldNames) ->
-    case ets:lookup(seshat_counters_server:get_table(Group), Name) of
-        [{Name, Ref, Fields0}] ->
-            Fields = resolve_fields(Fields0),
-            lists:foldl(fun ({Key, Index, _Type, _Description}, Acc0) ->
-                                case lists:member(Key, FieldNames) of
-                                    true ->
-                                        Acc0#{Key => counters:get(Ref, Index)};
-                                    false ->
-                                        Acc0
-                                end
-                        end, #{}, Fields);
+counters(Group, Id, Names) ->
+    case ets:lookup(seshat_counters_server:get_table(Group), Id) of
+        [#entry{cref = CRef, field_spec = FieldsSpec}] ->
+            AllCountersMap = build_counters_map(CRef, FieldsSpec),
+            maps:with(Names, AllCountersMap);
         _ ->
             undefined
     end.
 
+%% @doc Return a map with all metrics for all objects in the group
+%% The returned map has the following structure:
+%% #{Name => #{LabelMap => Value}}
+%% This structure is similar to what Prometheus expects,
+%% with label sets associated with metric values.
+%%
+%% @param Group the name of an existing group
 -spec format(group()) -> format_result().
 format(Group) ->
-    ets:foldl(fun({Labels, Ref, Fields0}, Acc) ->
-                      Fields = resolve_fields(Fields0),
-                      lists:foldl(
-                        fun ({Name, Index, Type, Help}, Acc0) ->
-                                InitialMetric = #{type => Type,
-                                                  help => Help,
-                                                  values => #{}},
-                                Metric = maps:get(Name, Acc0, InitialMetric),
-                                Values = maps:get(values, Metric),
-                                Counter = counters:get(Ref, Index),
-                                Values1 = Values#{Labels => Counter},
-                                Metric1 = Metric#{values => Values1},
-                                Acc0#{Name => Metric1}
-                        end, Acc, Fields)
+    format(Group, ?DEFAULT_FORMAT_OPTIONS).
+
+%% @doc Return a map with all or selected metrics for all objects in the group
+%% The returned map has the following structure:
+%% #{Name => #{Labels => Value}}
+%% Labels can be a map or as a binary (optimization).
+%%
+%% @param Group the name of an existing group
+%% @param Options formatting options
+-spec format(group(), format_options()) -> format_result().
+format(Group, Options) ->
+    #{metrics := Metrics,
+      labels := LabelFormat,
+      filter_fun := FilterFun} = maps:merge(?DEFAULT_FORMAT_OPTIONS, Options),
+    ets:foldl(fun
+                  (#entry{cref = CRef,
+                          field_spec = FieldsSpec,
+                          labels = LabelsAsMap,
+                          rendered_labels = LabelsAsBinary}, Acc) ->
+                      case map_size(LabelsAsMap) > 0 andalso FilterFun(LabelsAsMap) of
+                          true ->
+                              Fields0 = resolve_fields_spec(FieldsSpec),
+                              Fields = case Metrics of
+                                           all ->
+                                               Fields0;
+                                           Names when is_list(Names) ->
+                                               lists:filter(fun (F) ->
+                                                              lists:member(
+                                                                element(1, F), Names)
+                                                            end, Fields0)
+                                       end,
+                              Labels = case LabelFormat of
+                                           as_map ->
+                                               LabelsAsMap;
+                                           as_binary ->
+                                               LabelsAsBinary
+                                       end,
+                              format_fields(Fields, CRef, Labels, Acc);
+                          false ->
+                              %% skip filtered-out and unlabeled entries
+                              Acc
+                      end
               end, #{}, seshat_counters_server:get_table(Group)).
 
-%% internal
+format_fields(Fields, CRef, Labels, Acc) ->
+    lists:foldl(
+      fun ({Name0, Index, Type, Help}, Acc0) ->
+              PromType = prometheus_type(Type),
+              Name = with_prometheus_suffix(atom_to_binary(Name0), Type),
+              InitialMetric = #{type => PromType,
+                                help => Help,
+                                values => #{}},
+              MetricAcc = maps:get(Name, Acc0, InitialMetric),
+              ValuesAcc = maps:get(values, MetricAcc),
+              ComputedValue = case Type of
+                                  {_, ratio} ->
+                                      counters:get(CRef, Index) / 100;
+                                  {_, time_ms} ->
+                                      counters:get(CRef, Index) / 1000; % ms to s
+                                  _ ->
+                                      counters:get(CRef, Index) * 1.0 % ensure float
+                              end,
+              ValuesAcc1 = ValuesAcc#{Labels => ComputedValue},
+              MetricAcc1 = MetricAcc#{values => ValuesAcc1},
+              Acc0#{Name => MetricAcc1}
+      end, Acc, Fields).
 
-resolve_fields(Fields) when is_list(Fields) ->
+%% @doc Return the metadata for the fields
+%% When creating a set of metrics with seshat:new/3 or seshat:new/4,
+%% metadata about the metrics/counters has to be provided either
+%% as a list or as a reference to a persistent term with the list.
+%% The latter is recommended when a lot of similar metrics need to be stored
+%% (eg. many instances of the same component emit the same set of metrics)
+-spec resolve_fields_spec(fields_spec()) -> [field_spec()].
+resolve_fields_spec(Fields = FieldsSpec) when is_list(FieldsSpec) ->
     Fields;
-resolve_fields({persistent_term, PTerm}) ->
+resolve_fields_spec({persistent_term, PTerm}) ->
     %% TODO error handling
     persistent_term:get(PTerm).
 
-register_counter(Group, Name, Ref, Fields) ->
+-spec register_counter(group(), id(), counters:counters_ref(), fields_spec(), labels()) ->
+    ok.
+register_counter(Group, Id, CRef, FieldsSpec, Labels) when is_map(Labels) ->
     TRef = seshat_counters_server:get_table(Group),
-    true = ets:insert(TRef, {Name, Ref, Fields}),
+    Entry = #entry{id = Id,
+                   cref = CRef,
+                   field_spec = FieldsSpec,
+                   labels = Labels,
+                   rendered_labels = labels_to_binary(Labels)
+                  },
+    true = ets:insert(TRef, Entry),
     ok.
 
-new_counter(Group, Name, Fields, FieldsSpec) ->
+-spec new_counter(group(), id(), [field_spec()], fields_spec(), labels()) ->
+    counters:counters_ref().
+new_counter(Group, Id, Fields, FieldsSpec, Labels) ->
     Size = length(Fields),
-    %% TODO: validate that positions are correct, i.e. not out of range
-    %% or duplicated
-    ExpectedPositions = lists:seq(1, Size),
-    Positions = lists:sort([P || {_, P, _, _} <- Fields]),
-    case ExpectedPositions == Positions of
+    ExpectedIndexes = lists:seq(1, Size),
+    Indexes = lists:sort([P || {_, P, _, _} <- Fields]),
+    case ExpectedIndexes == Indexes of
         true ->
             CRef = counters:new(Size, [write_concurrency]),
-            ok = register_counter(Group, Name, CRef, FieldsSpec),
+            ok = register_counter(Group, Id, CRef, FieldsSpec, Labels),
             CRef;
         false ->
             error(invalid_field_specification)
     end.
 
+%% @doc Return a Prometheus-formated text as iodata,
+%% which can be directly returned by a Prometheus endpoint.
+%% The returned iodata has the following structure:
+%% prefix_name{label1="value1",...} Value
+%%
+%% @param Group the name of an existing group
+%% @param Names the list of metrics to return
+%%
+-spec prom_format(group(), string()) -> iodata().
+prom_format(Group, Prefix) ->
+    do_prom_format(format(Group, #{metrics => all, labels => as_binary}), Prefix).
+
+-spec prom_format(group(), string(), [atom()]) -> iodata().
+prom_format(Group, Prefix, Names) when is_list(Names) ->
+    do_prom_format(format(Group, #{metrics => Names, labels => as_binary}), Prefix).
+
+-spec do_prom_format(format_result(), string()) -> iodata().
+do_prom_format(Data, Prefix) ->
+    PrefixBin = case unicode:characters_to_binary(Prefix ++ "_") of
+                    P when is_tuple(P) ->
+                        %% characters_to_binary errors are tuples
+                        <<>>;
+                    P -> P
+                end,
+    maps:fold(fun
+                  (Name0, #{type := PromType, help := Help, values := Values}, Acc) ->
+                      Name = <<PrefixBin/binary, Name0/binary>>,
+                      HelpLine = ["# HELP ", Name, " ", Help],
+                      TypeBin = atom_to_binary(PromType, utf8),
+                      TypeLine = ["# TYPE ", Name, " ", TypeBin],
+
+                      MetricSeries = fold_values(Name, HelpLine, TypeLine, Values),
+                      [Acc, MetricSeries]
+              end, [], Data).
+
+fold_values(Name, Help, Type, Values)
+  when is_binary(Name)
+       andalso is_map(Values) ->
+    Header = [Help, "\n", Type, "\n"],
+    ValueLines = maps:fold(fun
+                               (Labels, Value, Acc) when is_binary(Labels) ->
+                                   FormattedValue = float_to_binary(Value, [{decimals, 3}, compact]),
+                                   Line = [Name, "{", Labels, "} ", FormattedValue, "\n"],
+                                   [Line, Acc]
+                           end, [], Values),
+    [Header, ValueLines].
+
+-spec prometheus_type(metric_type()) -> prometheus_type().
+prometheus_type(counter) -> counter;
+prometheus_type(gauge) -> gauge;
+prometheus_type({counter, _}) -> counter;
+prometheus_type({gauge, _}) -> gauge.
+
+-spec with_prometheus_suffix(binary(), metric_type()) -> binary().
+with_prometheus_suffix(Name, {_, ratio}) -> <<Name/binary, "_ratio">>;
+with_prometheus_suffix(Name, {_, time_ms}) -> <<Name/binary, "_seconds">>;
+with_prometheus_suffix(Name, {_, time_s}) -> <<Name/binary, "_seconds">>;
+with_prometheus_suffix(Name, _) -> Name.
+
+label_value_to_binary(Value) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+label_value_to_binary(Value) when is_list(Value) ->
+    list_to_binary(Value);
+label_value_to_binary(Value) when is_binary(Value) ->
+    Value.
+
+labels_to_binary(Labels) when is_map(Labels) ->
+    LabelsBin0 = maps:fold(
+                   fun (K, V, LabelsAcc) ->
+                           LabelKey = atom_to_binary(K, utf8),
+                           LabelValue = label_value_to_binary(V),
+                           <<LabelsAcc/binary, LabelKey/binary, "=\"", LabelValue/binary, "\",">>
+                   end, <<"">>, Labels),
+    case LabelsBin0 of
+        <<>> -> <<>>;
+        _ ->
+            binary:part(LabelsBin0, 0, byte_size(LabelsBin0) - 1)
+    end.
