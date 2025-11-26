@@ -112,9 +112,28 @@ delete(Group, Id) ->
 -spec build_counters_map(counters:counters_ref(), fields_spec()) ->
     #{atom() => integer()}.
 build_counters_map(CRef, FieldsSpec) ->
+    build_counters_map(CRef, FieldsSpec, all).
+
+%% Helper function to build the map of counters for a given CRef and FieldSpec
+%% with optional filtering by Names
+-spec build_counters_map(counters:counters_ref(), fields_spec(), all | [atom()]) ->
+    #{atom() => integer()}.
+build_counters_map(CRef, FieldsSpec, all) ->
     Fields = resolve_fields_spec(FieldsSpec),
     lists:foldl(fun ({Name, Index, _Type, _Help}, Acc0) ->
-                    Acc0#{Name => counters:get(CRef, Index)}
+                        Acc0#{Name => counters:get(CRef, Index)}
+                end, #{}, Fields);
+build_counters_map(CRef, FieldsSpec, Names) when is_list(Names) ->
+    Fields = resolve_fields_spec(FieldsSpec),
+    lists:foldl(fun ({Name, Index, _Type, _Help}, Acc0) ->
+                        % the assumption here is that Names is a very
+                        % short list likely of just 1 element
+                        case lists:member(Name, Names) of
+                            true ->
+                                Acc0#{Name => counters:get(CRef, Index)};
+                            false ->
+                                Acc0
+                        end
                 end, #{}, Fields).
 
 %% @doc Return a map with all metrics of all objects in the group
@@ -159,8 +178,7 @@ counters(Group, Id) ->
 counters(Group, Id, Names) ->
     case ets:lookup(seshat_counters_server:get_table(Group), Id) of
         [#entry{cref = CRef, field_spec = FieldsSpec}] ->
-            AllCountersMap = build_counters_map(CRef, FieldsSpec),
-            maps:with(Names, AllCountersMap);
+            build_counters_map(CRef, FieldsSpec, Names);
         _ ->
             undefined
     end.
