@@ -123,11 +123,18 @@ build_counters_map(CRef, FieldsSpec, all) ->
     lists:foldl(fun ({Name, Index, _Type, _Help}, Acc0) ->
                         Acc0#{Name => counters:get(CRef, Index)}
                 end, #{}, Fields);
+build_counters_map(CRef, FieldsSpec, [Name]) ->
+    %% Optimized path for single name lookup
+    Fields = resolve_fields_spec(FieldsSpec),
+    case lists:keyfind(Name, 1, Fields) of
+        {Name, Index, _Type, _Help} ->
+            #{Name => counters:get(CRef, Index)};
+        false ->
+            #{}
+    end;
 build_counters_map(CRef, FieldsSpec, Names) when is_list(Names) ->
     Fields = resolve_fields_spec(FieldsSpec),
     lists:foldl(fun ({Name, Index, _Type, _Help}, Acc0) ->
-                        % the assumption here is that Names is a very
-                        % short list likely of just 1 element
                         case lists:member(Name, Names) of
                             true ->
                                 Acc0#{Name => counters:get(CRef, Index)};
