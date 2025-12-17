@@ -18,6 +18,7 @@
          counters/2,
          counters/3,
          delete/2,
+         fold/3,
          format/1,
          format/2,
          prom_format/2,
@@ -189,6 +190,21 @@ counters(Group, Id, Names) ->
         _ ->
             undefined
     end.
+
+%% @doc Folds over {@link id()}s and their counters in a {@link group()}.
+%%
+%% The fold function is passed three parameters: the `id()', its corresponding
+%% counters ref, and the accumulator.
+%%
+%% @param Fun the function to apply to each `id()' in the `group()'
+%% @param Acc the initial accumulator value
+%% @param Group the name of an existing group
+-spec fold(Fun, Acc :: term(), group()) -> NewAcc :: term() when
+    Fun :: fun((id(), counters:counters_ref(), term()) -> term()).
+fold(Fun, Acc0, Group) ->
+    ets:foldl(fun(#entry{id = Id, cref = CRef}, Acc) ->
+                      Fun(Id, CRef, Acc)
+              end, Acc0, seshat_counters_server:get_table(Group)).
 
 %% @doc Return a map with all metrics for all objects in the group
 %% The returned map has the following structure:
