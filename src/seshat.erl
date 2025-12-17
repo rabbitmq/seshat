@@ -18,6 +18,8 @@
          counters/2,
          counters/3,
          delete/2,
+         fold/3,
+         fold/4,
          format/1,
          format/2,
          prom_format/2,
@@ -189,6 +191,58 @@ counters(Group, Id, Names) ->
         _ ->
             undefined
     end.
+
+%% @doc Folds over all {@link id()}s in a {@link group()} and their metrics.
+%%
+%% Equivalent to `fold(Fun, Acc, Group, all)'.
+%%
+%% @param Fun the function to apply to each `id()' in the `group()'
+%% @param Acc the initial accumulator value
+%% @param Group the name of an existing group
+-spec fold(Fun, Acc, group()) -> Acc when
+    Fun :: fun((id(), #{atom() => integer()}, Acc) -> Acc).
+fold(Fun, Acc0, Group) ->
+    fold(Fun, Acc0, Group, all).
+
+%% @doc Folds over all {@link id()}s in a {@link group()} and selected metrics.
+%%
+%% The fold function is passed three parameters: the `id()', a map with the
+%% selected metrics for that `id()' (as returned by {@link counters/3}) and
+%% the accumulator.
+%%
+%% This is a more efficient way to query a few metrics across a whole group
+%% than {@link counters/1} followed by `maps:fold/3', which builds a map of
+%% maps of all metrics of all `id()'s.
+%%
+%% A `group()' may contain `id()'s registered with different
+%% {@link fields_spec()}s. Metrics in `Names' which are not part of an
+%% `id()''s fields spec are simply absent from the map passed to `Fun', so
+%% matching on them in the function head both selects and extracts:
+%%
+%% ```
+%% seshat:fold(fun (_Id, #{carrots_eaten_total := N}, Acc) ->
+%%                     Acc + N;
+%%                 (_Id, _Values, Acc) ->
+%%                     Acc
+%%             end, 0, Group, [carrots_eaten_total])
+%% '''
+%%
+%% The order in which `id()'s are visited is unspecified. The fold is not
+%% atomic with respect to concurrent calls to {@link new/3} or
+%% {@link delete/2}.
+%%
+%% @param Fun the function to apply to each `id()' in the `group()'
+%% @param Acc the initial accumulator value
+%% @param Group the name of an existing group
+%% @param Names the list of metrics to pass to `Fun', or `all'
+-spec fold(Fun, Acc, group(), all | [atom()]) -> Acc when
+    Fun :: fun((id(), #{atom() => integer()}, Acc) -> Acc).
+fold(Fun, Acc0, Group, Names) ->
+    ets:foldl(fun(#entry{id = Id,
+                         cref = CRef,
+                         field_spec = FieldsSpec}, Acc) ->
+                      Fun(Id, build_counters_map(CRef, FieldsSpec, Names), Acc)
+              end, Acc0, seshat_counters_server:get_table(Group)).
 
 %% @doc Return a map with all metrics for all objects in the group
 %% The returned map has the following structure:
