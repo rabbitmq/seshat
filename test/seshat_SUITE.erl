@@ -16,6 +16,8 @@
 all() ->
     [counters,
      counters_with_persistent_term_field_spec,
+     fold,
+     fold_mixed_fields_specs,
      format_group,
      format_with_many_labels,
      format_ratio,
@@ -82,6 +84,75 @@ counters_with_persistent_term_field_spec(_Config) ->
     ?assertMatch(#{holes_dug_total := 1},
                  seshat:counters(Group, "rabbit", [holes_dug_total])),
     persistent_term:erase(pets_field_spec),
+    ok.
+
+fold(_Config) ->
+    Group = ?FUNCTION_NAME,
+    Counters = [
+                {carrots_eaten_total, 1, counter, "Total number of carrots eaten on a meal"},
+                {holes_dug_total, 2, counter, "Total number of holes dug in an afternoon"}
+               ],
+    seshat:new(Group, "rabbit", Counters),
+    seshat:new(Group, "hare", Counters),
+    set_value(Group, "rabbit", carrots_eaten_total, 3),
+    set_value(Group, "rabbit", holes_dug_total, 1),
+    set_value(Group, "hare", carrots_eaten_total, 5),
+    set_value(Group, "hare", holes_dug_total, 7),
+
+    ?assertEqual(#{"rabbit" => #{carrots_eaten_total => 3, holes_dug_total => 1},
+                   "hare" => #{carrots_eaten_total => 5, holes_dug_total => 7}},
+                 seshat:fold(fun (Id, Values, Acc) ->
+                                     Acc#{Id => Values}
+                             end, #{}, Group)),
+
+    ?assertEqual(8, seshat:fold(fun (_Id, #{carrots_eaten_total := N}, Acc) ->
+                                        Acc + N
+                                end, 0, Group, [carrots_eaten_total])),
+    ?assertEqual(#{"rabbit" => #{}, "hare" => #{}},
+                 seshat:fold(fun (Id, Values, Acc) ->
+                                     Acc#{Id => Values}
+                             end, #{}, Group, [])),
+
+    ?assertEqual(1, seshat:fold(fun ("rabbit", #{holes_dug_total := N}, Acc) ->
+                                        Acc + N;
+                                    (_Id, _Values, Acc) ->
+                                        Acc
+                                end, 0, Group, [holes_dug_total])),
+
+    seshat:delete(Group, "hare"),
+    ?assertEqual(3, seshat:fold(fun (_Id, #{carrots_eaten_total := N}, Acc) ->
+                                        Acc + N
+                                end, 0, Group, [carrots_eaten_total])),
+    ok.
+
+fold_mixed_fields_specs(_Config) ->
+    Group = ?FUNCTION_NAME,
+    %% Two kinds of object in one group, sharing some metric names at
+    %% differing indexes and each having a metric the other lacks.
+    RabbitCounters = [{carrots_eaten_total, 1, counter, "Total number of carrots eaten on a meal"},
+                      {holes_dug_total, 2, counter, "Total number of holes dug in an afternoon"}],
+    HareCounters = [{holes_dug_total, 1, counter, "Total number of holes dug in an afternoon"},
+                    {sprints_total, 2, counter, "Total number of sprints"}],
+    seshat:new(Group, {rabbit, "bugs"}, RabbitCounters),
+    seshat:new(Group, {hare, "harold"}, HareCounters),
+    set_value(Group, {rabbit, "bugs"}, carrots_eaten_total, 3),
+    set_value(Group, {rabbit, "bugs"}, holes_dug_total, 1),
+    set_value(Group, {hare, "harold"}, holes_dug_total, 7),
+    set_value(Group, {hare, "harold"}, sprints_total, 9),
+
+    ?assertEqual(3, seshat:fold(fun (_Id, #{carrots_eaten_total := N}, Acc) ->
+                                        Acc + N;
+                                    (_Id, _Values, Acc) ->
+                                        Acc
+                                end, 0, Group, [carrots_eaten_total])),
+    ?assertEqual(9, seshat:fold(fun (_Id, #{sprints_total := N}, Acc) ->
+                                        Acc + N;
+                                    (_Id, _Values, Acc) ->
+                                        Acc
+                                end, 0, Group, [sprints_total])),
+    ?assertEqual(8, seshat:fold(fun (_Id, #{holes_dug_total := N}, Acc) ->
+                                        Acc + N
+                                end, 0, Group, [holes_dug_total])),
     ok.
 
 format_group(_Config) ->
