@@ -22,7 +22,8 @@
          format/2,
          prom_format/2,
          prom_format/3,
-         resolve_fields_spec/1
+         resolve_fields_spec/1,
+         labels_to_binary/1
         ]).
 
 -define(DEFAULT_FORMAT_OPTIONS, #{metrics => all,
@@ -84,20 +85,26 @@ new(Group, Id, {persistent_term, PTerm} = FieldsSpec, Labels) ->
 %% store the returned counters_ref in a stateful Erlang module or in
 %% persistent_term (@see persistent:term_put/2).
 %%
+%% Returns 'undefined' if Id names a histogram rather than a metric set;
+%% @see seshat_histogram:fetch/2 for those.
+%%
 %% @param Group the name of an existing group
 %% @param Id the id of an existing object
 %% @returns a reference to the counter
 -spec fetch(group(), id()) -> undefined | counters:counters_ref().
 fetch(Group, Id) ->
     TRef = seshat_counters_server:get_table(Group),
-    try
-        ets:lookup_element(TRef, Id, #entry.cref)
+    try ets:lookup(TRef, Id) of
+        [#entry{cref = CRef}] ->
+            CRef;
+        _ ->
+            undefined
     catch
         error:badarg ->
             undefined
     end.
 
-%% @doc Delete a metric set
+%% @doc Delete a metric set or a histogram
 %%
 %% @param Group the name of an existing group
 %% @param Id the id of an existing object
@@ -147,6 +154,9 @@ build_counters_map(CRef, FieldsSpec, Names) when is_list(Names) ->
 %% The returned map has the following structure:
 %% #{Id => #{Name => Value}}
 %%
+%% Histograms in the group are not included;
+%% @see seshat_histogram:fold/3 to read those.
+%%
 %% @param Group the name of an existing group
 -spec counters(group()) ->
     #{id() => #{atom() => integer()}}.
@@ -154,7 +164,9 @@ counters(Group) ->
     ets:foldl(
       fun(#entry{id = Id, cref = CRef, field_spec = FieldsSpec}, Acc) ->
               CountersMap = build_counters_map(CRef, FieldsSpec),
-              Acc#{Id => CountersMap}
+              Acc#{Id => CountersMap};
+         (#histogram_entry{}, Acc) ->
+              Acc
       end, #{}, seshat_counters_server:get_table(Group)).
 
 %% @doc Return a map with all metrics for the object
@@ -195,6 +207,11 @@ counters(Group, Id, Names) ->
 %% #{Name => #{LabelMap => Value}}
 %% This structure is similar to what Prometheus expects,
 %% with label sets associated with metric values.
+%%
+%% Histograms in the group are not included: a bucket/sum/count triple
+%% does not fit the single-value-per-label-set shape of format_result().
+%% @see seshat_histogram:fold/3 to read those, or prom_format/2,3 for an
+%% exposition-format rendering that covers both.
 %%
 %% @param Group the name of an existing group
 -spec format(group()) -> format_result().
@@ -240,7 +257,9 @@ format(Group, Options) ->
                           false ->
                               %% skip filtered-out and unlabeled entries
                               Acc
-                      end
+                      end;
+                  (#histogram_entry{}, Acc) ->
+                      Acc
               end, #{}, seshat_counters_server:get_table(Group)).
 
 format_fields(Fields, CRef, Labels, Acc) ->
@@ -312,16 +331,24 @@ new_counter(Group, Id, Fields, FieldsSpec, Labels) ->
 %% The returned iodata has the following structure:
 %% prefix_name{label1="value1",...} Value
 %%
+%% Covers both regular counters/gauges and histograms. This is the single
+%% exposition endpoint for a group; the histogram rendering itself lives in
+%% seshat_histogram.
+%%
 %% @param Group the name of an existing group
 %% @param Names the list of metrics to return
 %%
 -spec prom_format(group(), string()) -> iodata().
 prom_format(Group, Prefix) ->
-    do_prom_format(format(Group, #{metrics => all, labels => as_binary}), Prefix).
+    Counters = do_prom_format(format(Group, #{metrics => all, labels => as_binary}), Prefix),
+    Histograms = seshat_histogram:prom_format(Group, Prefix, all),
+    [Counters, Histograms].
 
 -spec prom_format(group(), string(), [atom()]) -> iodata().
 prom_format(Group, Prefix, Names) when is_list(Names) ->
-    do_prom_format(format(Group, #{metrics => Names, labels => as_binary}), Prefix).
+    Counters = do_prom_format(format(Group, #{metrics => Names, labels => as_binary}), Prefix),
+    Histograms = seshat_histogram:prom_format(Group, Prefix, Names),
+    [Counters, Histograms].
 
 -spec do_prom_format(format_result(), string()) -> iodata().
 do_prom_format(Data, Prefix) ->
@@ -373,6 +400,10 @@ label_value_to_binary(Value) when is_list(Value) ->
 label_value_to_binary(Value) when is_binary(Value) ->
     Value.
 
+%% @doc Render a label map as Prometheus exposition-format label pairs,
+%% without the enclosing braces. Exported for seshat_histogram, which needs
+%% the identical rendering; not intended for use outside seshat itself.
+-spec labels_to_binary(labels_map()) -> binary().
 labels_to_binary(Labels) when is_map(Labels) ->
     LabelsBin0 = maps:fold(
                    fun (K, V, LabelsAcc) ->
